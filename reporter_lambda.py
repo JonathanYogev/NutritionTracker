@@ -68,6 +68,31 @@ def get_sheets_service():
     return build('sheets', 'v4', credentials=creds)
 
 
+def calculate_daily_totals(sheet_values, today_str):
+    """
+    Calculates total nutrition values for a given day from sheet data.
+    """
+    total_calories, total_protein, total_carbs, total_fat = 0, 0, 0, 0
+
+    # Skip header row if it exists
+    for row in sheet_values[1:]:
+        if not row:
+            continue
+
+        try:
+            row_date_str = row[0].split(' ')[0]
+            if row_date_str == today_str:
+                total_calories += float(row[2])
+                total_protein += float(row[3])
+                total_carbs += float(row[4])
+                total_fat += float(row[5])
+        except (ValueError, IndexError) as e:
+            logger.warning(f"Could not parse row: {row}. Error: {e}. Skipping.")
+            continue
+
+    return total_calories, total_protein, total_carbs, total_fat
+
+
 def lambda_handler(event, context):
     """
     Lambda function to generate a daily nutrition report.
@@ -87,37 +112,19 @@ def lambda_handler(event, context):
                                     range=read_range).execute()
         values = result.get('values', [])
 
-        if not values:
-            logger.info("Meals sheet is empty. No report to generate.")
-            return {'statusCode': 200, 'body': 'Sheet was empty.'}
+        if not values or len(values) <= 1:
+            logger.info("Meals sheet is empty or contains only a header. No report to generate.")
+            # Optionally send a message that no meals were logged
+            send_telegram_message(TELEGRAM_CHAT_ID, "No meals were logged today. No report generated.")
+            return {'statusCode': 200, 'body': 'Sheet was empty or had only a header.'}
 
         # 2. Calculate daily totals
-        total_calories = 0
-        total_protein = 0
-        total_carbs = 0
-        total_fat = 0
-
-        # Use the same timezone as the processor lambda
         today_str = datetime.now(
             ZoneInfo('Asia/Jerusalem')).strftime("%Y-%m-%d")
         logger.info(f"Calculating totals for date: {today_str}")
 
-        # Skip header row if it exists
-        for row in values[1:]:
-            if not row:
-                continue
-
-            row_date_str = row[0].split(' ')[0]
-            if row_date_str == today_str:
-                try:
-                    total_calories += float(row[2])
-                    total_protein += float(row[3])
-                    total_carbs += float(row[4])
-                    total_fat += float(row[5])
-                except (ValueError, IndexError) as e:
-                    logger.info(
-                        f"Could not parse row: {row}. Error: {e}. Skipping.")
-                    continue
+        total_calories, total_protein, total_carbs, total_fat = calculate_daily_totals(
+            values, today_str)
 
         logger.info(
             f"Calculated totals: Cals={total_calories}, Prot={total_protein}, Carbs={total_carbs}, Fat={total_fat}")
@@ -159,7 +166,6 @@ def lambda_handler(event, context):
             error_message = f"Failed to generate daily nutrition report. Error: {e}"
             send_telegram_message(TELEGRAM_CHAT_ID, error_message)
         except Exception as notify_e:
-            logger.info(
-                f"Failed to send error notification. Error: {notify_e}")
+            logger.error(f"Failed to send error notification. Error: {notify_e}")
 
         return {'statusCode': 500, 'body': f"An error occurred: {str(e)}"}
