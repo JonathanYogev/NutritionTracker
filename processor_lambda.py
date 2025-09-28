@@ -90,16 +90,39 @@ def analyze_image_with_gemini(image_bytes):
 
 def get_nutrition_data(food_item):
     """
-    Gets nutrition data from FoodData Central by searching and letting Gemini pick the best match.
+    Gets nutrition data from FoodData Central by making separate calls for each data type
+    and letting Gemini pick the best match from the combined results.
     """
-    # Step 1: Search FDC
-    search_url = f"https://api.nal.usda.gov/fdc/v1/foods/search?query={food_item}&dataType=SR%20Legacy,Foundation&api_key={FDC_API_KEY}&pageSize=5"
-    response = requests.get(search_url)
-    response.raise_for_status()
+    data_types = ["SR Legacy", "Foundation", "Survey (FNDDS)"]
+    all_foods = []
+    seen_fdc_ids = set()
 
-    search_data = response.json()
-    if not search_data.get('foods'):
+    for data_type in data_types:
+        try:
+            # URL encode the data_type string to handle spaces, e.g., "Survey (FNDDS)"
+            encoded_data_type = requests.utils.quote(data_type)
+            search_url = f"https://api.nal.usda.gov/fdc/v1/foods/search?query={food_item}&dataType={encoded_data_type}&api_key={FDC_API_KEY}&pageSize=10"
+            
+            response = requests.get(search_url)
+            response.raise_for_status()
+            search_data_subset = response.json()
+
+            if search_data_subset.get('foods'):
+                for food in search_data_subset['foods']:
+                    if food['fdcId'] not in seen_fdc_ids:
+                        all_foods.append(food)
+                        seen_fdc_ids.add(food['fdcId'])
+        except requests.exceptions.RequestException as e:
+            logger.warning(
+                f"API call to FDC failed for dataType {data_type}. Error: {e}")
+            # Continue to the next data type even if one fails
+            continue
+
+    if not all_foods:
         return None
+
+    # The rest of the function now operates on the combined list of foods
+    search_data = {'foods': all_foods}
 
     # Step 2: Format the options for Gemini
     options = []
@@ -109,9 +132,7 @@ def get_nutrition_data(food_item):
     options_string = "\n".join(options)
 
     # Step 3: Ask Gemini to pick the best match
-    prompt = f"""You are a nutrition expert. The user ate '{food_item}'. I found the following 5 items in the USDA database. Which one is the best and most accurate match? Please respond with only the number of the best option.
-
-{options_string}"""
+    prompt = f"""You are a nutrition expert. The user ate '{food_item}'. I found the following items in the USDA database. Which one is the best and most accurate match? Please respond with only the number of the best option.\n\n{options_string}"""
 
     picker_model = genai.GenerativeModel('gemini-2.5-flash')
     picker_response = picker_model.generate_content(prompt)
@@ -248,14 +269,14 @@ def lambda_handler(event, context):
             write_to_google_sheets(sheet_data)
 
             # Send results to the user
-            if used_food_descriptions:
-                descriptions_text = "\n".join(
-                    [f"- {desc}" for desc in used_food_descriptions])
-                result_message = f"Based on the following items:\n{descriptions_text}\n\n"
+            if food_items:
+                # Use the original food items identified by Gemini for the message
+                items_text = "\n".join(
+                    [f"- {item}" for item in food_items if item])
+                result_message = f"Nutrition for your meal:\n{items_text}\n\n"
             else:
-                result_message = ""
+                result_message = "Nutrition for your meal:\n"
 
-            result_message += f"Nutrition for your meal:\n"
             result_message += f"- Calories: {round(total_calories, 2)}\n"
             result_message += f"- Protein: {round(total_protein, 2)}g\n"
             result_message += f"- Carbs: {round(total_carbs, 2)}g\n"

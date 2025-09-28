@@ -30,8 +30,9 @@ This queue decouples the client and processor functions.
 1.  **Navigate to SQS** in the AWS Console.
 2.  Click **Create queue**.
 3.  **Name**: `nutrition-tracker-queue`.
-4.  Leave the default settings (Standard queue) and click **Create queue**.
-5.  Note the **Queue URL** and **ARN** for later.
+4.  Set the **Default visibility timeout** to **5 minutes 30 seconds**.
+5.  Leave the other default settings and click **Create queue**.
+6.  Note the **Queue URL** and **ARN** for later.
 
 ## 4. Create a Lambda Layer for All Dependencies
 
@@ -41,7 +42,7 @@ A single layer will hold all Python libraries for our functions, simplifying dep
     ```bash
     mkdir -p lambda_layer/python
     ```
-2.  **Create a requirements file**: Create a file named `all_requirements.txt` with the following content:
+2.  **Create a requirements file**: Create a file named `requirements.txt` with the following content:
     ```
     requests
     boto3
@@ -52,7 +53,7 @@ A single layer will hold all Python libraries for our functions, simplifying dep
     ```
 3.  **Install dependencies into the layer folder**:
     ```bash
-    pip install -r all_requirements.txt -t lambda_layer/python
+    pip install -r requirements.txt -t lambda_layer/python
     ```
 4.  **Create the layer ZIP file**:
     ```bash
@@ -135,7 +136,7 @@ For each function below, follow these general steps.
     -   `FDC_API_KEY_SSM_PATH`: `/nutrition-tracker/fdc-api-key`
     -   `GOOGLE_SHEETS_CREDENTIALS_SSM_PATH`: `/nutrition-tracker/google-sheets-credentials`
     -   `SPREADSHEET_ID_SSM_PATH`: `/nutrition-tracker/spreadsheet-id`
-6.  **Increase Timeout**: Set the timeout to **1 minute** to allow for image processing.
+6.  **Increase Timeout**: Set the timeout to **5 minutes** to allow for image processing.
 
 ### 6.3. `reporter_lambda`
 
