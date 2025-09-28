@@ -106,7 +106,7 @@ def lambda_handler(event, context):
         for row in values[1:]:
             if not row:
                 continue
-            
+
             row_date_str = row[0].split(' ')[0]
             if row_date_str == today_str:
                 try:
@@ -115,10 +115,12 @@ def lambda_handler(event, context):
                     total_carbs += float(row[4])
                     total_fat += float(row[5])
                 except (ValueError, IndexError) as e:
-                    logger.info(f"Could not parse row: {row}. Error: {e}. Skipping.")
+                    logger.info(
+                        f"Could not parse row: {row}. Error: {e}. Skipping.")
                     continue
-        
-        logger.info(f"Calculated totals: Cals={total_calories}, Prot={total_protein}, Carbs={total_carbs}, Fat={total_fat}")
+
+        logger.info(
+            f"Calculated totals: Cals={total_calories}, Prot={total_protein}, Carbs={total_carbs}, Fat={total_fat}")
 
         # 3. Write summary to the daily reports sheet
         summary_data = [
@@ -144,7 +146,7 @@ def lambda_handler(event, context):
         report_message += f"- Total Protein: {round(total_protein, 2)}g\n"
         report_message += f"- Total Carbs: {round(total_carbs, 2)}g\n"
         report_message += f"- Total Fat: {round(total_fat, 2)}g"
-        
+
         send_telegram_message(TELEGRAM_CHAT_ID, report_message)
 
         logger.info("Successfully generated and sent daily report.")
@@ -157,6 +159,7 @@ def lambda_handler(event, context):
             error_message = f"Failed to generate daily nutrition report. Error: {e}"
             send_telegram_message(TELEGRAM_CHAT_ID, error_message)
         except Exception as notify_e:
-            logger.info(f"Failed to send error notification. Error: {notify_e}")
-            
+            logger.info(
+                f"Failed to send error notification. Error: {notify_e}")
+
         return {'statusCode': 500, 'body': f"An error occurred: {str(e)}"}

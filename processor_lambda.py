@@ -75,7 +75,7 @@ def get_telegram_image(file_id):
 
 
 def analyze_image_with_gemini(image_bytes):
-    """Analyzes an image with Google Gemini Vision API using the Python SDK."""
+    """Analyzes an image with Google Gemini API using the Python SDK."""
     genai.configure(api_key=GEMINI_API_KEY)
     img = Image.open(io.BytesIO(image_bytes))
     model = genai.GenerativeModel('gemini-2.5-flash')
