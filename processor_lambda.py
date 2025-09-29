@@ -11,6 +11,8 @@ import io
 import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import time
+from botocore.exceptions import ClientError
 
 # Configure logging
 logger = logging.getLogger()
@@ -19,6 +21,11 @@ logger.setLevel(logging.INFO)
 # Initialize Boto3 client and a cache for secrets
 ssm = boto3.client('ssm')
 secrets_cache = {}
+
+# Initialize DynamoDB client for idempotency
+dynamodb = boto3.resource('dynamodb')
+PROCESSED_MESSAGES_TABLE_NAME = "nutrition-tracker-processed-messages"
+processed_messages_table = dynamodb.Table(PROCESSED_MESSAGES_TABLE_NAME)
 
 
 def get_secret(parameter_name_env_var):
@@ -75,7 +82,7 @@ def get_telegram_image(file_id):
 
 
 def analyze_image_with_gemini(image_bytes):
-    """Analyzes an image with Google Gemini API using the Python SDK."""
+    """Analyzes an image with Google Gemini Vision API using the Python SDK."""
     genai.configure(api_key=GEMINI_API_KEY)
     img = Image.open(io.BytesIO(image_bytes))
     model = genai.GenerativeModel('gemini-2.5-flash')
@@ -171,117 +178,144 @@ def write_to_google_sheets(data):
     return result
 
 
+def process_meal_from_message(message_body, message_id):
+    """
+    Processes a single meal from an SQS message body.
+    Downloads image, analyzes nutrition, logs to sheets, and notifies user.
+    """
+    # Idempotency check
+    try:
+        # TTL is 24 hours (86400 seconds) from now
+        ttl_timestamp = int(time.time()) + 86400
+        processed_messages_table.put_item(
+            Item={
+                'messageId': message_id,
+                'ttl': ttl_timestamp
+            },
+            ConditionExpression='attribute_not_exists(messageId)'
+        )
+        logger.info(f"Message {message_id} marked as processed.")
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+            logger.warning(f"Message {message_id} already processed. Skipping.")
+            return  # IMPORTANT: Exit if already processed
+        else:
+            logger.error(f"DynamoDB error for message {message_id}: {e}", exc_info=True)
+            raise  # Re-raise other DynamoDB errors
+
+    chat_id = message_body['chat_id']
+    file_id = message_body['file_id']
+
+    logger.info(
+        f"Processing message for chat_id: {chat_id}, file_id: {file_id}")
+
+    image_bytes = get_telegram_image(file_id)
+
+    food_items_text = analyze_image_with_gemini(image_bytes)
+    logger.info(f"Gemini response: {food_items_text}")
+
+    if food_items_text.strip() == 'NO_FOOD':
+        logger.info(
+            f"Gemini identified no food for chat_id: {chat_id}. Notifying user.")
+        send_telegram_message(
+            chat_id, "Sorry, I couldn't identify any food in the image. Please try another one.")
+        return  # Stop processing for this message
+
+    food_items = [item.strip() for item in food_items_text.split(';')]
+
+    total_calories = 0
+    total_protein = 0
+    total_carbs = 0
+    total_fat = 0
+
+    for item in food_items:
+        if not item:
+            continue
+
+        weight = 0
+        food_name = item
+        weight_match = re.search(r'\((\d+)g\)', item)
+        if weight_match:
+            weight = int(weight_match.group(1))
+            food_name = item[:weight_match.start()].strip()
+
+        # Remove quantity from food name before searching
+        food_name_parts = food_name.split()
+        if food_name_parts and food_name_parts[0].isdigit():
+            food_name = ' '.join(food_name_parts[1:])
+
+        logger.info(
+            f"Processing item: '{item}'. Cleaned food name for search: '{food_name}', weight: {weight}g")
+
+        if weight == 0:
+            logger.warning(
+                f"Could not determine weight for item: {item}. Skipping.")
+            continue
+
+        nutrition_data = get_nutrition_data(food_name)
+        if nutrition_data and nutrition_data.get('foods'):
+            found_food = nutrition_data['foods'][0]
+            logger.info(
+                f"FDC found food: {found_food.get('description')}")
+
+            nutrients = found_food.get('foodNutrients', [])
+            for nutrient in nutrients:
+                value_per_100g = nutrient.get('value', 0)
+                nutrient_name = nutrient.get('nutrientName')
+                nutrient_unit = nutrient.get('unitName', '').upper()
+
+                if nutrient_name in ['Energy', 'Protein', 'Carbohydrate, by difference', 'Total lipid (fat)']:
+                    logger.info(
+                        f"Nutrient: {nutrient_name}, Value per 100g: {value_per_100g} {nutrient_unit}")
+
+                value_per_gram = value_per_100g / 100
+                if nutrient_name == 'Energy' and nutrient_unit == 'KCAL':
+                    total_calories += value_per_gram * weight
+                elif nutrient_name == 'Protein':
+                    total_protein += value_per_gram * weight
+                elif nutrient_name == 'Carbohydrate, by difference':
+                    total_carbs += value_per_gram * weight
+                elif nutrient_name == 'Total lipid (fat)':
+                    total_fat += value_per_gram * weight
+
+    # Get current time in Asia/Jerusalem timezone
+    now = datetime.now(ZoneInfo('Asia/Jerusalem')
+                       ).strftime("%Y-%m-%d %H:%M:%S")
+
+    sheet_data = [
+        now,
+        ', '.join(food_items),
+        round(total_calories, 2),
+        round(total_protein, 2),
+        round(total_carbs, 2),
+        round(total_fat, 2)
+    ]
+
+    write_to_google_sheets(sheet_data)
+
+    # Send results to the user
+    if food_items:
+        # Use the original food items identified by Gemini for the message
+        items_text = "\n".join(
+            [f"- {item}" for item in food_items if item])
+        result_message = f"Nutrition for your meal:\n{items_text}\n\n"
+    else:
+        result_message = "Nutrition for your meal:\n"
+
+    result_message += f"- Calories: {round(total_calories, 2)}\n"
+    result_message += f"- Protein: {round(total_protein, 2)}g\n"
+    result_message += f"- Carbs: {round(total_carbs, 2)}g\n"
+    result_message += f"- Fat: {round(total_fat, 2)}g"
+    send_telegram_message(chat_id, result_message)
+
+
 def lambda_handler(event, context):
     """Lambda function entry point for processing SQS messages."""
     for record in event['Records']:
         try:
             message_body = json.loads(record['body'])
-            chat_id = message_body['chat_id']
-            file_id = message_body['file_id']
-
-            logger.info(
-                f"Processing message for chat_id: {chat_id}, file_id: {file_id}")
-
-            image_bytes = get_telegram_image(file_id)
-
-            food_items_text = analyze_image_with_gemini(image_bytes)
-            logger.info(f"Gemini response: {food_items_text}")
-
-            if food_items_text.strip() == 'NO_FOOD':
-                logger.info(
-                    f"Gemini identified no food for chat_id: {chat_id}. Notifying user.")
-                send_telegram_message(
-                    chat_id, "Sorry, I couldn't identify any food in the image. Please try another one.")
-                continue
-
-            food_items = [item.strip() for item in food_items_text.split(';')]
-
-            total_calories = 0
-            total_protein = 0
-            total_carbs = 0
-            total_fat = 0
-            used_food_descriptions = []
-
-            for item in food_items:
-                if not item:
-                    continue
-
-                weight = 0
-                food_name = item
-                weight_match = re.search(r'\((\d+)g\)', item)
-                if weight_match:
-                    weight = int(weight_match.group(1))
-                    food_name = item[:weight_match.start()].strip()
-
-                # Remove quantity from food name before searching
-                food_name_parts = food_name.split()
-                if food_name_parts and food_name_parts[0].isdigit():
-                    food_name = ' '.join(food_name_parts[1:])
-
-                logger.info(
-                    f"Processing item: '{item}'. Cleaned food name for search: '{food_name}', weight: {weight}g")
-
-                if weight == 0:
-                    logger.warning(
-                        f"Could not determine weight for item: {item}. Skipping.")
-                    continue
-
-                nutrition_data = get_nutrition_data(food_name)
-                if nutrition_data and nutrition_data.get('foods'):
-                    found_food = nutrition_data['foods'][0]
-                    logger.info(
-                        f"FDC found food: {found_food.get('description')}")
-                    used_food_descriptions.append(
-                        found_food.get('description'))
-                    nutrients = found_food.get('foodNutrients', [])
-                    for nutrient in nutrients:
-                        value_per_100g = nutrient.get('value', 0)
-                        nutrient_name = nutrient.get('nutrientName')
-                        nutrient_unit = nutrient.get('unitName', '').upper()
-
-                        if nutrient_name in ['Energy', 'Protein', 'Carbohydrate, by difference', 'Total lipid (fat)']:
-                            logger.info(
-                                f"Nutrient: {nutrient_name}, Value per 100g: {value_per_100g} {nutrient_unit}")
-
-                        value_per_gram = value_per_100g / 100
-                        if nutrient_name == 'Energy' and nutrient_unit == 'KCAL':
-                            total_calories += value_per_gram * weight
-                        elif nutrient_name == 'Protein':
-                            total_protein += value_per_gram * weight
-                        elif nutrient_name == 'Carbohydrate, by difference':
-                            total_carbs += value_per_gram * weight
-                        elif nutrient_name == 'Total lipid (fat)':
-                            total_fat += value_per_gram * weight
-
-            # Get current time in Asia/Jerusalem timezone
-            now = datetime.now(ZoneInfo('Asia/Jerusalem')
-                               ).strftime("%Y-%m-%d %H:%M:%S")
-
-            sheet_data = [
-                now,
-                ', '.join(food_items),
-                round(total_calories, 2),
-                round(total_protein, 2),
-                round(total_carbs, 2),
-                round(total_fat, 2)
-            ]
-
-            write_to_google_sheets(sheet_data)
-
-            # Send results to the user
-            if food_items:
-                # Use the original food items identified by Gemini for the message
-                items_text = "\n".join(
-                    [f"- {item}" for item in food_items if item])
-                result_message = f"Nutrition for your meal:\n{items_text}\n\n"
-            else:
-                result_message = "Nutrition for your meal:\n"
-
-            result_message += f"- Calories: {round(total_calories, 2)}\n"
-            result_message += f"- Protein: {round(total_protein, 2)}g\n"
-            result_message += f"- Carbs: {round(total_carbs, 2)}g\n"
-            result_message += f"- Fat: {round(total_fat, 2)}g"
-            send_telegram_message(chat_id, result_message)
+            # Pass the SQS messageId to the processing function
+            process_meal_from_message(message_body, record['messageId'])
 
         except Exception as e:
             logger.error(f"Error processing SQS message: {e}", exc_info=True)
