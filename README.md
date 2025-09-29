@@ -5,11 +5,12 @@ This project is a serverless, AI-powered nutrition tracker that allows a user to
 ## Features
 
 - **Image-Based Meal Logging**: Send a picture of your meal to the Telegram bot to start the logging process.
-- **AI Food Identification**: Uses Google Gemini Vision to identify food items and estimate their weight directly from the image.
-- **Detailed Nutrition Analysis**: Fetches comprehensive nutritional data (calories, protein, carbs, fat) for each food item from the USDA's FoodData Central database.
+- **AI Food Identification**: Uses Google Gemini to identify food items and estimate their weight directly from the image.
+- **Enhanced Nutrition Data Search**: Queries the USDA's FoodData Central API across multiple data types (SR Legacy, Foundation, Survey (FNDDS)) to find the most accurate nutritional match, further refined by Gemini.
+- **Guaranteed Idempotency**: Ensures each meal is processed exactly once, preventing duplicate entries in your data, even if messages are re-delivered.
 - **Automated Google Sheets Logging**: Automatically appends each meal's nutritional information to a specified Google Sheet.
 - **Daily Summary Reports**: A scheduled function runs daily to calculate total nutrition for the day, logs it to a separate summary sheet, and sends a report to the user via Telegram.
-- **Decoupled & Scalable Architecture**: Built on a serverless AWS stack (Lambda, SQS, API Gateway) for robustness and scalability.
+- **Robust & Scalable Architecture**: Built on a serverless AWS stack (Lambda, SQS, API Gateway, DynamoDB) for high reliability and scalability.
 
 ## Architecture
 
@@ -22,9 +23,10 @@ The application is composed of three core, decoupled services orchestrated by AW
 
 2.  **Processor Lambda (`processor_lambda.py`)**:
     -   Triggered by new messages in the **SQS queue**.
+    -   **Idempotency Check**: Uses a DynamoDB table to ensure each message is processed only once.
     -   Downloads the image from Telegram.
-    -   Uses the Gemini Vision API to identify food items and estimate weights.
-    -   For each food item, it queries the FoodData Central API to find the best nutritional match (using Gemini again to refine the choice).
+    -   Uses the Gemini API to identify food items and estimate weights.
+    -   For each food item, it queries the FoodData Central API across multiple data types (SR Legacy, Foundation, Survey (FNDDS)) to find the best nutritional match (using Gemini again to refine the choice).
     -   Calculates total nutrition for the meal.
     -   Writes the meal data to the primary Google Sheet.
     -   Sends a final summary message to the user on Telegram.
@@ -43,7 +45,7 @@ A complete, step-by-step guide for deploying the entire application is available
 The high-level steps are:
 1.  **Prerequisites**: Ensure you have an AWS account, a Telegram bot, and a Google Cloud project with the necessary APIs enabled.
 2.  **Store Secrets**: All API keys and tokens are securely stored in AWS Systems Manager (SSM) Parameter Store.
-3.  **Create AWS Resources**: Set up an SQS queue and an IAM role.
+3.  **Create AWS Resources**: Set up an SQS queue, a DynamoDB table for idempotency, and an IAM role with appropriate permissions.
 4.  **Create a Lambda Layer**: A single Lambda Layer is created to manage all Python dependencies for the functions.
 5.  **Deploy Functions**: Deploy the three Lambda functions (`client`, `processor`, `reporter`) and configure their triggers and environment variables.
 6.  **Configure API Gateway**: Set up an HTTP API endpoint to receive the Telegram webhook.

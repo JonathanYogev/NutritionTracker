@@ -34,6 +34,20 @@ This queue decouples the client and processor functions.
 5.  Leave the other default settings and click **Create queue**.
 6.  Note the **Queue URL** and **ARN** for later.
 
+## 3.1. Create DynamoDB Table for Idempotency
+
+To ensure that each SQS message is processed exactly once, we will use a DynamoDB table to store the `messageId` of processed messages. This table will have a Time-To-Live (TTL) attribute to automatically clean up old entries.
+
+1.  **Navigate to DynamoDB** in the AWS Console.
+2.  Click **Create table**.
+3.  **Table name**: `nutrition-tracker-processed-messages`
+4.  **Partition key**: `messageId` (String)
+5.  **Table settings**: Keep default settings.
+6.  **Time to Live (TTL)**:
+    *   Enable TTL.
+    *   **TTL attribute**: `ttl` (This attribute will store the Unix timestamp when the item should expire).
+7.  Click **Create table**.
+
 ## 4. Create a Lambda Layer for All Dependencies
 
 A single layer will hold all Python libraries for our functions, simplifying deployment.
@@ -83,14 +97,29 @@ A single IAM role can be used for all three functions.
         "Version": "2012-10-17",
         "Statement": [
             {
+                "Sid": "AllowSSMParameterAccess",
                 "Effect": "Allow",
                 "Action": "ssm:GetParameter",
                 "Resource": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/nutrition-tracker/*"
             },
             {
+                "Sid": "AllowSQSQueueAccess",
                 "Effect": "Allow",
-                "Action": "sqs:*",
+                "Action": [
+                    "sqs:SendMessage",
+                    "sqs:ReceiveMessage",
+                    "sqs:DeleteMessage",
+                    "sqs:GetQueueAttributes"
+                ],
                 "Resource": "arn:aws:sqs:REGION:ACCOUNT_ID:YOUR_QUEUE_NAME"
+            },
+            {
+                "Sid": "AllowDynamoDBIdempotencyTableAccess",
+                "Effect": "Allow",
+                "Action": [
+                    "dynamodb:PutItem"
+                ],
+                "Resource": "arn:aws:dynamodb:REGION:ACCOUNT_ID:table/nutrition-tracker-processed-messages"
             }
         ]
     }

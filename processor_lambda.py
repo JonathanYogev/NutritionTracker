@@ -11,6 +11,8 @@ import io
 import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import time
+from botocore.exceptions import ClientError
 
 # Configure logging
 logger = logging.getLogger()
@@ -19,6 +21,11 @@ logger.setLevel(logging.INFO)
 # Initialize Boto3 client and a cache for secrets
 ssm = boto3.client('ssm')
 secrets_cache = {}
+
+# Initialize DynamoDB client for idempotency
+dynamodb = boto3.resource('dynamodb')
+PROCESSED_MESSAGES_TABLE_NAME = "nutrition-tracker-processed-messages"
+processed_messages_table = dynamodb.Table(PROCESSED_MESSAGES_TABLE_NAME)
 
 
 def get_secret(parameter_name_env_var):
@@ -75,7 +82,7 @@ def get_telegram_image(file_id):
 
 
 def analyze_image_with_gemini(image_bytes):
-    """Analyzes an image with Google Gemini API using the Python SDK."""
+    """Analyzes an image with Google Gemini Vision API using the Python SDK."""
     genai.configure(api_key=GEMINI_API_KEY)
     img = Image.open(io.BytesIO(image_bytes))
     model = genai.GenerativeModel('gemini-2.5-flash')
@@ -170,11 +177,32 @@ def write_to_google_sheets(data):
     ).execute()
     return result
 
-def process_meal_from_message(message_body):
+
+def process_meal_from_message(message_body, message_id):
     """
     Processes a single meal from an SQS message body.
     Downloads image, analyzes nutrition, logs to sheets, and notifies user.
     """
+    # Idempotency check
+    try:
+        # TTL is 24 hours (86400 seconds) from now
+        ttl_timestamp = int(time.time()) + 86400
+        processed_messages_table.put_item(
+            Item={
+                'messageId': message_id,
+                'ttl': ttl_timestamp
+            },
+            ConditionExpression='attribute_not_exists(messageId)'
+        )
+        logger.info(f"Message {message_id} marked as processed.")
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+            logger.warning(f"Message {message_id} already processed. Skipping.")
+            return  # IMPORTANT: Exit if already processed
+        else:
+            logger.error(f"DynamoDB error for message {message_id}: {e}", exc_info=True)
+            raise  # Re-raise other DynamoDB errors
+
     chat_id = message_body['chat_id']
     file_id = message_body['file_id']
 
@@ -199,7 +227,6 @@ def process_meal_from_message(message_body):
     total_protein = 0
     total_carbs = 0
     total_fat = 0
-    used_food_descriptions = []
 
     for item in food_items:
         if not item:
@@ -230,8 +257,7 @@ def process_meal_from_message(message_body):
             found_food = nutrition_data['foods'][0]
             logger.info(
                 f"FDC found food: {found_food.get('description')}")
-            used_food_descriptions.append(
-                found_food.get('description'))
+
             nutrients = found_food.get('foodNutrients', [])
             for nutrient in nutrients:
                 value_per_100g = nutrient.get('value', 0)
@@ -288,7 +314,8 @@ def lambda_handler(event, context):
     for record in event['Records']:
         try:
             message_body = json.loads(record['body'])
-            process_meal_from_message(message_body)
+            # Pass the SQS messageId to the processing function
+            process_meal_from_message(message_body, record['messageId'])
 
         except Exception as e:
             logger.error(f"Error processing SQS message: {e}", exc_info=True)
