@@ -11,10 +11,13 @@ This project is a serverless, AI-powered nutrition tracker that allows a user to
 - **Automated Google Sheets Logging**: Automatically appends each meal's nutritional information to a specified Google Sheet.
 - **Daily Summary Reports**: A scheduled function runs daily to calculate total nutrition for the day, logs it to a separate summary sheet, and sends a report to the user via Telegram.
 - **Robust & Scalable Architecture**: Built on a serverless AWS stack (Lambda, SQS, API Gateway, DynamoDB) for high reliability and scalability.
+- **Error Handling and Monitoring**: Uses an SQS Dead-Letter Queue (DLQ) to capture and isolate failed messages for debugging, with a CloudWatch Alarm for immediate notification of processing failures.
 
 ## Architecture
 
 The application is composed of three core, decoupled services orchestrated by AWS services:
+
+![AI Nutrition Tracker Architecture Diagram](./images/architecture_diagram.png)
 
 1.  **Client Lambda (`client_lambda.py`)**:
     -   Triggered by an **API Gateway** webhook which receives messages from Telegram.
@@ -25,7 +28,7 @@ The application is composed of three core, decoupled services orchestrated by AW
     -   Triggered by new messages in the **SQS queue**.
     -   **Idempotency Check**: Uses a DynamoDB table to ensure each message is processed only once.
     -   Downloads the image from Telegram.
-    -   Uses the Gemini API to identify food items and estimate weights.
+    -   Uses the Gemini Vision API to identify food items and estimate weights.
     -   For each food item, it queries the FoodData Central API across multiple data types (SR Legacy, Foundation, Survey (FNDDS)) to find the best nutritional match (using Gemini again to refine the choice).
     -   Calculates total nutrition for the meal.
     -   Writes the meal data to the primary Google Sheet.
@@ -38,6 +41,11 @@ The application is composed of three core, decoupled services orchestrated by AW
     -   Appends the daily summary to a separate "Daily Reports" sheet.
     -   Sends the daily summary report to the user on Telegram.
 
+## Error Handling and Monitoring
+
+-   **SQS Dead-Letter Queue (DLQ)**: If the `processor_lambda` fails to process a message after several retries, the message is automatically moved to a DLQ. This prevents the message from being endlessly retried and allows for manual inspection and debugging.
+-   **CloudWatch Alarm**: A CloudWatch alarm is configured to monitor the number of messages in the DLQ. If a message arrives in the DLQ, the alarm triggers and sends a notification, ensuring that you are immediately aware of any processing failures.
+
 ## Setup and Deployment
 
 A complete, step-by-step guide for deploying the entire application is available in [**deployment_guide.md**](./deployment_guide.md).
@@ -45,7 +53,7 @@ A complete, step-by-step guide for deploying the entire application is available
 The high-level steps are:
 1.  **Prerequisites**: Ensure you have an AWS account, a Telegram bot, and a Google Cloud project with the necessary APIs enabled.
 2.  **Store Secrets**: All API keys and tokens are securely stored in AWS Systems Manager (SSM) Parameter Store.
-3.  **Create AWS Resources**: Set up an SQS queue, a DynamoDB table for idempotency, and an IAM role with appropriate permissions.
+3.  **Create AWS Resources**: Set up an SQS queue with a corresponding Dead-Letter Queue (DLQ), a DynamoDB table for idempotency, and an IAM role with appropriate permissions.
 4.  **Create a Lambda Layer**: A single Lambda Layer is created to manage all Python dependencies for the functions.
 5.  **Deploy Functions**: Deploy the three Lambda functions (`client`, `processor`, `reporter`) and configure their triggers and environment variables.
 6.  **Configure API Gateway**: Set up an HTTP API endpoint to receive the Telegram webhook.
