@@ -329,3 +329,5 @@ def lambda_handler(event, context):
             except Exception as notify_e:
                 logger.error(
                     f"Failed to notify user about the processing error. Error: {notify_e}")
+            # Re-raise the exception to ensure the message is redriven to the DLQ
+            raise
