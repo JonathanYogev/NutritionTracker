@@ -10,7 +10,25 @@ This guide provides step-by-step instructions to deploy the nutrition tracker ap
 - A service account for Google Cloud with credentials to access the Sheets API.
 - A FoodData Central API key.
 
-## 2. Securely Store Secrets in SSM
+## 2. Create Google Sheet
+
+Your application uses a Google Sheet to store meal entries and daily summaries.
+
+1.  **Create a New Google Sheet**:
+    *   Go to [Google Sheets](https://sheets.new) and create a new blank spreadsheet.
+    *   Rename the spreadsheet to something descriptive (e.g., "Nutrition Tracker Data").
+2.  **Configure Sheets**:
+    *   Ensure the first sheet is named `Sheet1`. This is where individual meal entries will be logged.
+    *   Create a second sheet and name it `Daily_Reports`. This is where daily summaries will be appended.
+3.  **Share with Service Account**:
+    *   Locate the email address of your Google Service Account (this is typically found in the JSON credentials file you downloaded, under the `client_email` field).
+    *   Click the "Share" button in your Google Sheet.
+    *   Add the service account email address and grant it **Editor** permissions.
+4.  **Note Spreadsheet ID**:
+    *   The Spreadsheet ID is part of the URL of your Google Sheet (e.g., `https://docs.google.com/spreadsheets/d/YOUR_SPREADSHEET_ID/edit`).
+    *   You will need this ID to store in AWS SSM Parameter Store.
+
+## 3. Securely Store Secrets in SSM
 
 Before deploying, store all secrets in AWS Systems Manager (SSM) Parameter Store.
 
@@ -23,18 +41,35 @@ Before deploying, store all secrets in AWS Systems Manager (SSM) Parameter Store
     -   **/nutrition-tracker/spreadsheet-id**: The ID of your Google Sheet.
     -   **/nutrition-tracker/telegram-chat-id**: Your personal Telegram Chat ID (get this by messaging `@userinfobot` on Telegram).
 
-## 3. Create the SQS Queue
+## 4. Create the SQS Queue
 
 This queue decouples the client and processor functions.
 
+### 4.1. Create Dead-Letter Queue (DLQ)
+
+This queue will hold messages that fail to be processed after a certain number of retries, preventing them from endlessly retrying and allowing for inspection.
+
 1.  **Navigate to SQS** in the AWS Console.
 2.  Click **Create queue**.
-3.  **Name**: `nutrition-tracker-queue`.
-4.  Set the **Default visibility timeout** to **5 minutes 30 seconds**.
-5.  Leave the other default settings and click **Create queue**.
-6.  Note the **Queue URL** and **ARN** for later.
+3.  **Name**: `nutrition-tracker-dlq` (Standard queue type).
+4.  Leave default settings and click **Create queue**.
+5.  Note the **ARN** of this DLQ; you will need it in the next step.
+6.  **(Recommended)** Create a CloudWatch alarm to monitor the number of messages in the DLQ. This will notify you if messages are failing to be processed.
 
-## 3.1. Create DynamoDB Table for Idempotency
+### 4.2. Create Main SQS Queue
+
+1.  **Navigate to SQS** in the AWS Console.
+2.  Click **Create queue**.
+3.  **Name**: `nutrition-tracker-queue` (Standard queue type).
+4.  Set the **Default visibility timeout** to **5 minutes 30 seconds**.
+5.  **Redrive policy**:
+    *   Enable Redrive policy.
+    *   **Dead-letter queue**: Select the `nutrition-tracker-dlq` you just created.
+    *   **Maximum receives**: Set to `5` (This means a message will be retried 5 times before being sent to the DLQ).
+6.  Leave the other default settings and click **Create queue**.
+7.  Note the **Queue URL** and **ARN** for later.
+
+## 5. Create DynamoDB Table for Idempotency
 
 To ensure that each SQS message is processed exactly once, we will use a DynamoDB table to store the `messageId` of processed messages. This table will have a Time-To-Live (TTL) attribute to automatically clean up old entries.
 
@@ -48,7 +83,7 @@ To ensure that each SQS message is processed exactly once, we will use a DynamoD
     *   **TTL attribute**: `ttl` (This attribute will store the Unix timestamp when the item should expire).
 7.  Click **Create table**.
 
-## 4. Create a Lambda Layer for All Dependencies
+## 6. Create a Lambda Layer for All Dependencies
 
 A single layer will hold all Python libraries for our functions, simplifying deployment.
 
@@ -84,7 +119,7 @@ A single layer will hold all Python libraries for our functions, simplifying dep
     -   **Compatible runtimes**: Select **Python 3.12**.
     -   Click **Create**.
 
-## 5. Create IAM Role for Lambdas
+## 7. Create IAM Role for Lambdas
 
 A single IAM role can be used for all three functions.
 
@@ -126,11 +161,11 @@ A single IAM role can be used for all three functions.
     ```
 5.  **Name the role** `nutrition-tracker-lambda-role` and create it.
 
-## 6. Deploy the Lambda Functions
+## 8. Deploy the Lambda Functions
 
 For each function below, follow these general steps.
 
-### 6.1. `client_lambda`
+### 8.1. `client_lambda`
 
 1.  **Create Function**:
     -   Navigate to **Lambda** > **Create function**.
@@ -147,7 +182,7 @@ For each function below, follow these general steps.
     -   `SQS_QUEUE_URL`: The URL of your SQS queue.
 5.  **Increase Timeout**: Under **General configuration**, set the timeout to **10 seconds**.
 
-### 6.2. `processor_lambda`
+### 8.2. `processor_lambda`
 
 1.  **Create Function**:
     -   **Name**: `nutrition-tracker-processor`.
@@ -167,7 +202,7 @@ For each function below, follow these general steps.
     -   `SPREADSHEET_ID_SSM_PATH`: `/nutrition-tracker/spreadsheet-id`
 6.  **Increase Timeout**: Set the timeout to **5 minutes** to allow for image processing.
 
-### 6.3. `reporter_lambda`
+### 8.3. `reporter_lambda`
 
 1.  **Create Function**:
     -   **Name**: `nutrition-tracker-reporter`.
@@ -187,7 +222,7 @@ For each function below, follow these general steps.
     -   `TELEGRAM_CHAT_ID_SSM_PATH`: `/nutrition-tracker/telegram-chat-id`
 6.  **Increase Timeout**: Set the timeout to **30 seconds**.
 
-## 7. Configure API Gateway
+## 9. Configure API Gateway
 
 1.  **Navigate to API Gateway** > **Create API**.
 2.  Choose **HTTP API** > **Build**.
@@ -196,11 +231,10 @@ For each function below, follow these general steps.
 5.  **Route**: Configure a `POST` method for the path `/webhook`.
 6.  Review and create, then deploy your API.
 
-## 8. Set the Telegram Webhook
+## 10. Set the Telegram Webhook
 
 Send a `POST` request to Telegram, replacing the placeholders with your values:
 ```bash
 curl -F "url=https://YOUR_API_GATEWAY_URL/webhook" https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN/setWebhook
 ```
-
 Your application is now fully deployed.
