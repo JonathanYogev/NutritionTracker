@@ -41,7 +41,7 @@ SPREADSHEET_ID = get_secret('SPREADSHEET_ID_SSM_PATH')
 TELEGRAM_CHAT_ID = get_secret('TELEGRAM_CHAT_ID_SSM_PATH')
 
 # Google Sheets configuration
-MEALS_SHEET_NAME = 'Sheet1'
+MEALS_SHEET_NAME = 'Meals'
 REPORTS_SHEET_NAME = 'Daily_Reports'
 
 

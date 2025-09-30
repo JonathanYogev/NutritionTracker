@@ -170,7 +170,7 @@ def write_to_google_sheets(data):
     body = {'values': [data]}
     result = sheet.values().append(
         spreadsheetId=SPREADSHEET_ID,
-        range='Sheet1!A:F',
+        range='Meals!A:F',
         valueInputOption='USER_ENTERED',
         insertDataOption='INSERT_ROWS',
         body=body
