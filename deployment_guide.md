@@ -83,50 +83,46 @@ To ensure that each SQS message is processed exactly once, we will use a DynamoD
     *   **TTL attribute**: `ttl` (This attribute will store the Unix timestamp when the item should expire).
 7.  Click **Create table**.
 
-## 6. Create a Lambda Layer for All Dependencies
+## 6. Create a Single Combined Lambda Layer
 
-A single layer will hold all Python libraries for our functions, simplifying deployment.
+For this project, we will use a single, combined Lambda Layer. This layer will hold both the third-party Python libraries (from `requirements.txt`) and our own shared code (the `common` module). This approach simplifies dependency management and deployment.
 
-1.  **Create a local directory structure**:
-    ```bash
-    mkdir -p lambda_layer/python
-    ```
-2.  **Create a requirements file**: Create a file named `requirements.txt` with the following content:
-    ```
-    requests
-    boto3
-    google-api-python-client
-    google-auth-oauthlib
-    google-generativeai
-    Pillow
-    ```
-3.  **Install dependencies into the layer folder**:
+1.  **Install dependencies into the layer folder**:
+
+    Install the dependencies into the `lambda_layer/python` directory.
+
     ```bash
     pip install -r requirements.txt -t lambda_layer/python
     ```
-4.  **Create the layer ZIP file**:
+
+2.  **Create the layer ZIP file**:
+
+    Navigate to the `lambda_layer` directory. The zip file should contain the `python` directory, which now includes both the installed dependencies and your `common` module.
+
     ```bash
     cd lambda_layer
     zip -r dependencies_layer.zip python
     cd ..
     ```
-5.  **Create the Layer in AWS**:
+3.  **Create the Layer in AWS**:
     -   Navigate to **Lambda** > **Layers** in the AWS Console.
     -   Click **Create layer**.
     -   **Name**: `nutrition-tracker-dependencies`.
-    -   **Description**: "Shared dependencies for the nutrition tracker project."
+    -   **Description**: "Shared dependencies and utility code for the nutrition tracker project."
     -   Upload the `dependencies_layer.zip` file.
     -   **Compatible runtimes**: Select **Python 3.12**.
-    -   Click **Create**.
+    -   Click **Create`.
 
-## 7. Create IAM Role for Lambdas
+## 7. Create IAM Roles for Lambdas
 
-A single IAM role can be used for all three functions.
+Create three separate IAM roles, one for each Lambda function, to ensure each function has only the permissions it needs.
+
+### 7.1. `client_lambda_role`
 
 1.  **Navigate to IAM** > **Roles** and click **Create role**.
 2.  **Trusted entity**: Select **AWS service** > **Lambda**.
 3.  **Permissions**: Add the `AWSLambdaBasicExecutionRole` managed policy.
-4.  **Create a new inline policy** with the following JSON, replacing `REGION`, `ACCOUNT_ID`, and `YOUR_QUEUE_NAME` with your specific values.
+4.  **Create a new inline policy** with the following JSON, replacing `REGION`, `ACCOUNT_ID`, and `YOUR_QUEUE_NAME` with your specific values:
     ```json
     {
         "Version": "2012-10-17",
@@ -135,13 +131,45 @@ A single IAM role can be used for all three functions.
                 "Sid": "AllowSSMParameterAccess",
                 "Effect": "Allow",
                 "Action": "ssm:GetParameter",
-                "Resource": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/nutrition-tracker/*"
+                "Resource": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/nutrition-tracker/telegram-bot-token"
+            },
+            {
+                "Sid": "AllowSQSQueueAccess",
+                "Effect": "Allow",
+                "Action": "sqs:SendMessage",
+                "Resource": "arn:aws:sqs:REGION:ACCOUNT_ID:YOUR_QUEUE_NAME"
+            }
+        ]
+    }
+    ```
+5.  **Name the role** `nutrition-tracker-client-lambda-role` and create it.
+
+### 7.2. `processor_lambda_role`
+
+1.  **Navigate to IAM** > **Roles** and click **Create role**.
+2.  **Trusted entity**: Select **AWS service** > **Lambda**.
+3.  **Permissions**: Add the `AWSLambdaBasicExecutionRole` managed policy.
+4.  **Create a new inline policy** with the following JSON, replacing `REGION` and `ACCOUNT_ID` with your specific values:
+    ```json
+    {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "AllowSSMParameterAccess",
+                "Effect": "Allow",
+                "Action": "ssm:GetParameter",
+                "Resource": [
+                    "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/nutrition-tracker/telegram-bot-token",
+                    "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/nutrition-tracker/gemini-api-key",
+                    "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/nutrition-tracker/fdc-api-key",
+                    "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/nutrition-tracker/google-sheets-credentials",
+                    "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/nutrition-tracker/spreadsheet-id"
+                ]
             },
             {
                 "Sid": "AllowSQSQueueAccess",
                 "Effect": "Allow",
                 "Action": [
-                    "sqs:SendMessage",
                     "sqs:ReceiveMessage",
                     "sqs:DeleteMessage",
                     "sqs:GetQueueAttributes"
@@ -151,15 +179,39 @@ A single IAM role can be used for all three functions.
             {
                 "Sid": "AllowDynamoDBIdempotencyTableAccess",
                 "Effect": "Allow",
-                "Action": [
-                    "dynamodb:PutItem"
-                ],
+                "Action": "dynamodb:PutItem",
                 "Resource": "arn:aws:dynamodb:REGION:ACCOUNT_ID:table/nutrition-tracker-processed-messages"
             }
         ]
     }
     ```
-5.  **Name the role** `nutrition-tracker-lambda-role` and create it.
+5.  **Name the role** `nutrition-tracker-processor-lambda-role` and create it.
+
+### 7.3. `reporter_lambda_role`
+
+1.  **Navigate to IAM** > **Roles** and click **Create role**.
+2.  **Trusted entity**: Select **AWS service** > **Lambda**.
+3.  **Permissions**: Add the `AWSLambdaBasicExecutionRole` managed policy.
+4.  **Create a new inline policy** with the following JSON, replacing `REGION` and `ACCOUNT_ID` with your specific values:
+    ```json
+    {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "AllowSSMParameterAccess",
+                "Effect": "Allow",
+                "Action": "ssm:GetParameter",
+                "Resource": [
+                    "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/nutrition-tracker/telegram-bot-token",
+                    "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/nutrition-tracker/google-sheets-credentials",
+                    "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/nutrition-tracker/spreadsheet-id",
+                    "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/nutrition-tracker/telegram-chat-id"
+                ]
+            }
+        ]
+    }
+    ```
+5.  **Name the role** `nutrition-tracker-reporter-lambda-role` and create it.
 
 ## 8. Deploy the Lambda Functions
 
