@@ -4,35 +4,13 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import boto3
-import requests
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from common.utils import get_secret, send_telegram_message
 
 # Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-
-# Initialize Boto3 client and a cache for secrets
-ssm = boto3.client('ssm')
-secrets_cache = {}
-
-
-def get_secret(parameter_name_env_var):
-    """Fetches a secret from AWS SSM Parameter Store with caching."""
-    if parameter_name_env_var in secrets_cache:
-        return secrets_cache[parameter_name_env_var]
-
-    try:
-        parameter_name = os.environ[parameter_name_env_var]
-        response = ssm.get_parameter(Name=parameter_name, WithDecryption=True)
-        secret_value = response['Parameter']['Value']
-        secrets_cache[parameter_name_env_var] = secret_value
-        return secret_value
-    except Exception as e:
-        logger.error(
-            f"Failed to fetch SSM parameter: {os.environ.get(parameter_name_env_var)}. Error: {e}")
-        raise e
-
 
 # API Keys and Tokens from environment variables pointing to SSM
 TELEGRAM_BOT_TOKEN = get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH')
@@ -43,22 +21,6 @@ TELEGRAM_CHAT_ID = get_secret('TELEGRAM_CHAT_ID_SSM_PATH')
 # Google Sheets configuration
 MEALS_SHEET_NAME = 'Meals'
 REPORTS_SHEET_NAME = 'Daily_Reports'
-
-
-def send_telegram_message(chat_id, text):
-    """Sends a message to a Telegram user."""
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        'chat_id': chat_id,
-        'text': text
-    }
-    try:
-        response = requests.post(url, json=payload)
-        response.raise_for_status()
-        logger.info(f"Message sent to chat_id {chat_id}: '{text}'")
-    except requests.exceptions.RequestException as e:
-        logger.error(
-            f"Failed to send message to chat_id {chat_id}. Error: {e}")
 
 
 def get_sheets_service():
@@ -115,7 +77,7 @@ def lambda_handler(event, context):
         if not values or len(values) <= 1:
             logger.info("Meals sheet is empty or contains only a header. No report to generate.")
             # Optionally send a message that no meals were logged
-            send_telegram_message(TELEGRAM_CHAT_ID, "No meals were logged today. No report generated.")
+            send_telegram_message(TELEGRAM_CHAT_ID, "No meals were logged today. No report generated.", TELEGRAM_BOT_TOKEN)
             return {'statusCode': 200, 'body': 'Sheet was empty or had only a header.'}
 
         # 2. Calculate daily totals
@@ -154,7 +116,7 @@ def lambda_handler(event, context):
         report_message += f"- Total Carbs: {round(total_carbs, 2)}g\n"
         report_message += f"- Total Fat: {round(total_fat, 2)}g"
 
-        send_telegram_message(TELEGRAM_CHAT_ID, report_message)
+        send_telegram_message(TELEGRAM_CHAT_ID, report_message, TELEGRAM_BOT_TOKEN)
 
         logger.info("Successfully generated and sent daily report.")
         return {'statusCode': 200, 'body': 'Report generated successfully.'}
@@ -164,7 +126,7 @@ def lambda_handler(event, context):
         # Optionally, send an error message to Telegram
         try:
             error_message = f"Failed to generate daily nutrition report. Error: {e}"
-            send_telegram_message(TELEGRAM_CHAT_ID, error_message)
+            send_telegram_message(TELEGRAM_CHAT_ID, error_message, TELEGRAM_BOT_TOKEN)
         except Exception as notify_e:
             logger.error(f"Failed to send error notification. Error: {notify_e}")
 

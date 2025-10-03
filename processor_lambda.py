@@ -13,14 +13,12 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import time
 from botocore.exceptions import ClientError
+from common.utils import get_secret, send_telegram_message
 
 # Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# Initialize Boto3 client and a cache for secrets
-ssm = boto3.client('ssm')
-secrets_cache = {}
 
 # Initialize DynamoDB client for idempotency
 dynamodb = boto3.resource('dynamodb')
@@ -28,21 +26,7 @@ PROCESSED_MESSAGES_TABLE_NAME = "nutrition-tracker-processed-messages"
 processed_messages_table = dynamodb.Table(PROCESSED_MESSAGES_TABLE_NAME)
 
 
-def get_secret(parameter_name_env_var):
-    """Fetches a secret from AWS SSM Parameter Store with caching."""
-    if parameter_name_env_var in secrets_cache:
-        return secrets_cache[parameter_name_env_var]
 
-    try:
-        parameter_name = os.environ[parameter_name_env_var]
-        response = ssm.get_parameter(Name=parameter_name, WithDecryption=True)
-        secret_value = response['Parameter']['Value']
-        secrets_cache[parameter_name_env_var] = secret_value
-        return secret_value
-    except Exception as e:
-        logger.error(
-            f"Failed to fetch SSM parameter: {os.environ.get(parameter_name_env_var)}. Error: {e}")
-        raise e
 
 
 # API Keys and Tokens from environment variables pointing to SSM
@@ -51,22 +35,6 @@ GEMINI_API_KEY = get_secret('GEMINI_API_KEY_SSM_PATH')
 FDC_API_KEY = get_secret('FDC_API_KEY_SSM_PATH')
 GOOGLE_SHEETS_CREDENTIALS = get_secret('GOOGLE_SHEETS_CREDENTIALS_SSM_PATH')
 SPREADSHEET_ID = get_secret('SPREADSHEET_ID_SSM_PATH')
-
-
-def send_telegram_message(chat_id, text):
-    """Sends a message to a Telegram user."""
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        'chat_id': chat_id,
-        'text': text
-    }
-    try:
-        response = requests.post(url, json=payload)
-        response.raise_for_status()
-        logger.info(f"Message sent to chat_id {chat_id}: '{text}'")
-    except requests.exceptions.RequestException as e:
-        logger.error(
-            f"Failed to send message to chat_id {chat_id}. Error: {e}")
 
 
 def get_telegram_image(file_id):
@@ -211,14 +179,20 @@ def process_meal_from_message(message_body, message_id):
 
     image_bytes = get_telegram_image(file_id)
 
-    food_items_text = analyze_image_with_gemini(image_bytes)
+    try:
+        food_items_text = analyze_image_with_gemini(image_bytes)
+    except ValueError as e:
+        logger.error(f"Gemini analysis failed: {e}", exc_info=True)
+        send_telegram_message(
+            chat_id, "Sorry, I couldn't analyze the image. It might be an unsupported format or corrupted.", TELEGRAM_BOT_TOKEN)
+        return
     logger.info(f"Gemini response: {food_items_text}")
 
     if food_items_text.strip() == 'NO_FOOD':
         logger.info(
             f"Gemini identified no food for chat_id: {chat_id}. Notifying user.")
         send_telegram_message(
-            chat_id, "Sorry, I couldn't identify any food in the image. Please try another one.")
+            chat_id, "Sorry, I couldn't identify any food in the image. Please try another one.", TELEGRAM_BOT_TOKEN)
         return  # Stop processing for this message
 
     food_items = [item.strip() for item in food_items_text.split(';')]
@@ -306,7 +280,7 @@ def process_meal_from_message(message_body, message_id):
     result_message += f"- Protein: {round(total_protein, 2)}g\n"
     result_message += f"- Carbs: {round(total_carbs, 2)}g\n"
     result_message += f"- Fat: {round(total_fat, 2)}g"
-    send_telegram_message(chat_id, result_message)
+    send_telegram_message(chat_id, result_message, TELEGRAM_BOT_TOKEN)
 
 
 def lambda_handler(event, context):
@@ -325,7 +299,7 @@ def lambda_handler(event, context):
                 if 'chat_id' in message_body:
                     chat_id = message_body['chat_id']
                     send_telegram_message(
-                        chat_id, "Sorry, there was an error processing your meal details.")
+                        chat_id, "Sorry, there was an error processing your meal details.", TELEGRAM_BOT_TOKEN)
             except Exception as notify_e:
                 logger.error(
                     f"Failed to notify user about the processing error. Error: {notify_e}")
