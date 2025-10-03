@@ -4,66 +4,17 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import boto3
-import requests
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from common.utils import get_secret, send_telegram_message
 
 # Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# Initialize Boto3 client and a cache for secrets
-ssm = boto3.client('ssm')
-secrets_cache = {}
-
-
-def get_secret(parameter_name_env_var):
-    """Fetches a secret from AWS SSM Parameter Store with caching."""
-    if parameter_name_env_var in secrets_cache:
-        return secrets_cache[parameter_name_env_var]
-
-    try:
-        parameter_name = os.environ[parameter_name_env_var]
-        response = ssm.get_parameter(Name=parameter_name, WithDecryption=True)
-        secret_value = response['Parameter']['Value']
-        secrets_cache[parameter_name_env_var] = secret_value
-        return secret_value
-    except Exception as e:
-        logger.error(
-            f"Failed to fetch SSM parameter: {os.environ.get(parameter_name_env_var)}. Error: {e}")
-        raise e
-
-
-# API Keys and Tokens from environment variables pointing to SSM
-TELEGRAM_BOT_TOKEN = get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH')
-GOOGLE_SHEETS_CREDENTIALS = get_secret('GOOGLE_SHEETS_CREDENTIALS_SSM_PATH')
-SPREADSHEET_ID = get_secret('SPREADSHEET_ID_SSM_PATH')
-TELEGRAM_CHAT_ID = get_secret('TELEGRAM_CHAT_ID_SSM_PATH')
-
-# Google Sheets configuration
-MEALS_SHEET_NAME = 'Meals'
-REPORTS_SHEET_NAME = 'Daily_Reports'
-
-
-def send_telegram_message(chat_id, text):
-    """Sends a message to a Telegram user."""
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        'chat_id': chat_id,
-        'text': text
-    }
-    try:
-        response = requests.post(url, json=payload)
-        response.raise_for_status()
-        logger.info(f"Message sent to chat_id {chat_id}: '{text}'")
-    except requests.exceptions.RequestException as e:
-        logger.error(
-            f"Failed to send message to chat_id {chat_id}. Error: {e}")
-
-
-def get_sheets_service():
+def get_sheets_service(google_sheets_credentials):
     """Creates and returns a Google Sheets API service object."""
-    creds_json = json.loads(GOOGLE_SHEETS_CREDENTIALS)
+    creds_json = json.loads(google_sheets_credentials)
     creds = service_account.Credentials.from_service_account_info(creds_json)
     return build('sheets', 'v4', credentials=creds)
 
@@ -101,21 +52,31 @@ def lambda_handler(event, context):
     - Appends the daily summary to another sheet.
     - Sends the summary to a specified Telegram chat.
     """
+    # Fetch secrets and config within the handler for security and freshness
+    telegram_bot_token = get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH')
+    google_sheets_credentials = get_secret('GOOGLE_SHEETS_CREDENTIALS_SSM_PATH')
+    spreadsheet_id = get_secret('SPREADSHEET_ID_SSM_PATH')
+    telegram_chat_id = get_secret('TELEGRAM_CHAT_ID_SSM_PATH')
+
+    # Externalize sheet names for better maintainability
+    meals_sheet_name = os.environ.get('MEALS_SHEET_NAME', 'Meals')
+    reports_sheet_name = os.environ.get('REPORTS_SHEET_NAME', 'Daily_Reports')
+
     try:
         logger.info("Starting daily nutrition report generation.")
-        service = get_sheets_service()
+        service = get_sheets_service(google_sheets_credentials)
         sheet = service.spreadsheets()
 
         # 1. Read data from the meals sheet
-        read_range = f"{MEALS_SHEET_NAME}!A:F"
-        result = sheet.values().get(spreadsheetId=SPREADSHEET_ID,
+        read_range = f"{meals_sheet_name}!A:F"
+        result = sheet.values().get(spreadsheetId=spreadsheet_id,
                                     range=read_range).execute()
         values = result.get('values', [])
 
         if not values or len(values) <= 1:
             logger.info("Meals sheet is empty or contains only a header. No report to generate.")
             # Optionally send a message that no meals were logged
-            send_telegram_message(TELEGRAM_CHAT_ID, "No meals were logged today. No report generated.")
+            send_telegram_message(telegram_chat_id, "No meals were logged today. No report generated.", telegram_bot_token)
             return {'statusCode': 200, 'body': 'Sheet was empty or had only a header.'}
 
         # 2. Calculate daily totals
@@ -139,13 +100,13 @@ def lambda_handler(event, context):
         ]
         body = {'values': [summary_data]}
         sheet.values().append(
-            spreadsheetId=SPREADSHEET_ID,
-            range=f"{REPORTS_SHEET_NAME}!A:E",
+            spreadsheetId=spreadsheet_id,
+            range=f"{reports_sheet_name}!A:E",
             valueInputOption='USER_ENTERED',
             insertDataOption='INSERT_ROWS',
             body=body
         ).execute()
-        logger.info(f"Appended daily summary to '{REPORTS_SHEET_NAME}' sheet.")
+        logger.info(f"Appended daily summary to '{reports_sheet_name}' sheet.")
 
         # 4. Send summary to Telegram
         report_message = f"Daily Nutrition Summary for {today_str}:\n"
@@ -154,7 +115,7 @@ def lambda_handler(event, context):
         report_message += f"- Total Carbs: {round(total_carbs, 2)}g\n"
         report_message += f"- Total Fat: {round(total_fat, 2)}g"
 
-        send_telegram_message(TELEGRAM_CHAT_ID, report_message)
+        send_telegram_message(telegram_chat_id, report_message, telegram_bot_token)
 
         logger.info("Successfully generated and sent daily report.")
         return {'statusCode': 200, 'body': 'Report generated successfully.'}
@@ -164,7 +125,7 @@ def lambda_handler(event, context):
         # Optionally, send an error message to Telegram
         try:
             error_message = f"Failed to generate daily nutrition report. Error: {e}"
-            send_telegram_message(TELEGRAM_CHAT_ID, error_message)
+            send_telegram_message(telegram_chat_id, error_message, telegram_bot_token)
         except Exception as notify_e:
             logger.error(f"Failed to send error notification. Error: {notify_e}")
 
