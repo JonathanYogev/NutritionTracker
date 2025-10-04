@@ -21,7 +21,7 @@ logger.setLevel(logging.INFO)
 
 # Initialize DynamoDB client for idempotency
 dynamodb = boto3.resource('dynamodb')
-PROCESSED_MESSAGES_TABLE_NAME = "nutrition-tracker-processed-messages"
+PROCESSED_MESSAGES_TABLE_NAME = "nutrition-tracker-messages"
 processed_messages_table = dynamodb.Table(PROCESSED_MESSAGES_TABLE_NAME)
 
 
@@ -139,11 +139,10 @@ def write_to_google_sheets(data, google_sheets_credentials, spreadsheet_id):
         insertDataOption='INSERT_ROWS',
         body=body
     ).execute()
-
     return result
 
 
-def process_meal_from_message(message_body, message_id):
+def process_meal_from_message(message_body):
     """
     Processes a single meal from an SQS message body.
     Downloads image, analyzes nutrition, logs to sheets, and notifies user.
@@ -159,27 +158,46 @@ def process_meal_from_message(message_body, message_id):
     # Configure the Gemini library once per invocation
     genai.configure(api_key=gemini_api_key)
 
-    # Idempotency check
+    idempotency_key = message_body['idempotency_key']
+
+    # Stateful Idempotency Check
     try:
-        # TTL is 24 hours (86400 seconds) from now
-        ttl_timestamp = int(time.time()) + 86400
-        processed_messages_table.put_item(
-            Item={
-                'messageId': message_id,
-                'ttl': ttl_timestamp
-            },
-            ConditionExpression='attribute_not_exists(messageId)'
-        )
-        logger.info(f"Message {message_id} marked as processed.")
+        # Check if the message has already been processed or is in progress
+        response = processed_messages_table.get_item(
+            Key={'idempotency_key': idempotency_key})
+        item = response.get('Item')
+
+        if item and item.get('status') == 'COMPLETED':
+            logger.warning(
+                f"Request {idempotency_key} already completed. Skipping.")
+            return
+
+        if item and item.get('status') == 'PROCESSING':
+            logger.warning(
+                f"Request {idempotency_key} is already processing. Assuming previous attempt failed. Retrying.")
+            # Proceed with execution
+
+        else:
+            # New request, mark as PROCESSING
+            ttl_timestamp = int(time.time()) + 86400  # 24-hour TTL
+            processed_messages_table.put_item(
+                Item={
+                    'idempotency_key': idempotency_key,
+                    'status': 'PROCESSING',
+                    'ttl': ttl_timestamp
+                },
+                ConditionExpression='attribute_not_exists(idempotency_key)'
+            )
+            logger.info(f"Request {idempotency_key} marked as PROCESSING.")
+
     except ClientError as e:
         if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
             logger.warning(
-                f"Message {message_id} already processed. Skipping.")
-            return  # IMPORTANT: Exit if already processed
-        else:
-            logger.error(
-                f"DynamoDB error for message {message_id}: {e}", exc_info=True)
-            raise  # Re-raise other DynamoDB errors
+                f"Request {idempotency_key} was created by a concurrent process. Skipping.")
+            return  # Another process is handling this, so we can exit.
+        logger.error(
+            f"DynamoDB error for request {idempotency_key}: {e}", exc_info=True)
+        raise
 
     chat_id = message_body['chat_id']
     file_id = message_body['file_id']
@@ -293,13 +311,22 @@ def process_meal_from_message(message_body, message_id):
     result_message += f"- Fat: {round(total_fat, 2)}g"
     send_telegram_message(chat_id, result_message, telegram_bot_token)
 
+    # Mark as COMPLETED
+    processed_messages_table.update_item(
+        Key={'idempotency_key': idempotency_key},
+        UpdateExpression="set #status = :s",
+        ExpressionAttributeNames={'#status': 'status'},
+        ExpressionAttributeValues={':s': 'COMPLETED'}
+    )
+    logger.info(f"Request {idempotency_key} marked as COMPLETED.")
+
 
 def lambda_handler(event, context):
     """Lambda function entry point for processing SQS messages."""
     for record in event['Records']:
         try:
             message_body = json.loads(record['body'])
-            process_meal_from_message(message_body, record['messageId'])
+            process_meal_from_message(message_body)
 
         except Exception as e:
             logger.error(f"Error processing SQS message: {e}", exc_info=True)
