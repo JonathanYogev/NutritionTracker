@@ -8,12 +8,9 @@ from common.utils import get_secret, send_telegram_message
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# Initialize Boto3 clients and a cache for secrets
+# Initialize Boto3 clients
 sqs = boto3.client('sqs')
 
-# API Keys and Tokens from environment variables pointing to SSM
-TELEGRAM_BOT_TOKEN = get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH')
-SQS_QUEUE_URL = os.environ.get('SQS_QUEUE_URL')
 
 def lambda_handler(event, context):
     """
@@ -22,6 +19,17 @@ def lambda_handler(event, context):
     """
     try:
         logger.info(f"Received event: {json.dumps(event)}")
+
+        # Fetch secrets and config within the handler for security and freshness
+        telegram_bot_token = get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH')
+        sqs_queue_url = os.environ.get('SQS_QUEUE_URL')
+
+        if not sqs_queue_url:
+            logger.error(
+                "CRITICAL: SQS_QUEUE_URL environment variable is not set.")
+            # We can't notify the user because we might not have chat_id yet.
+            return {'statusCode': 500, 'body': json.dumps("Internal server configuration error.")}
+
         body = json.loads(event.get('body', '{}'))
 
         if 'message' not in body or 'photo' not in body['message']:
@@ -32,7 +40,8 @@ def lambda_handler(event, context):
         file_id = body['message']['photo'][-1]['file_id']
 
         # Send "processing" message to the user
-        send_telegram_message(chat_id, "Processing your meal...", TELEGRAM_BOT_TOKEN)
+        send_telegram_message(
+            chat_id, "Processing your meal...", telegram_bot_token)
 
         # Prepare message for SQS
         sqs_message = {
@@ -42,7 +51,7 @@ def lambda_handler(event, context):
 
         # Send message to SQS
         sqs.send_message(
-            QueueUrl=SQS_QUEUE_URL,
+            QueueUrl=sqs_queue_url,
             MessageBody=json.dumps(sqs_message)
         )
         logger.info(f"Message sent to SQS queue for chat_id {chat_id}.")
@@ -53,11 +62,12 @@ def lambda_handler(event, context):
         logger.error(f"Error: {e}", exc_info=True)
         # Try to inform the user about the error
         try:
+            telegram_bot_token = get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH')
             body = json.loads(event.get('body', '{}'))
             if 'message' in body and 'chat' in body['message']:
                 chat_id = body['message']['chat']['id']
                 send_telegram_message(
-                    chat_id, "Sorry, there was an error processing your request.", TELEGRAM_BOT_TOKEN)
+                    chat_id, "Sorry, there was an error processing your request.", telegram_bot_token)
         except Exception as notify_e:
             logger.error(
                 f"Failed to notify user about the error. Error: {notify_e}")
