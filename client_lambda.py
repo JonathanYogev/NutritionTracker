@@ -37,7 +37,11 @@ def lambda_handler(event, context):
             return {'statusCode': 200, 'body': json.dumps('No photo found.')}
 
         chat_id = body['message']['chat']['id']
+        message_id = body['message']['message_id']
         file_id = body['message']['photo'][-1]['file_id']
+
+        # Create a unique key to ensure this message is processed only once
+        idempotency_key = f"{chat_id}-{message_id}"
 
         # Send "processing" message to the user
         send_telegram_message(
@@ -46,7 +50,8 @@ def lambda_handler(event, context):
         # Prepare message for SQS
         sqs_message = {
             'chat_id': chat_id,
-            'file_id': file_id
+            'file_id': file_id,
+            'idempotency_key': idempotency_key
         }
 
         # Send message to SQS
