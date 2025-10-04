@@ -19,31 +19,26 @@ from common.utils import get_secret, send_telegram_message
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-
 # Initialize DynamoDB client for idempotency
 dynamodb = boto3.resource('dynamodb')
 PROCESSED_MESSAGES_TABLE_NAME = "nutrition-tracker-processed-messages"
 processed_messages_table = dynamodb.Table(PROCESSED_MESSAGES_TABLE_NAME)
 
 
+# Externalize model names for a flexible, two-model strategy
+GEMINI_VISION_MODEL_NAME = os.environ.get(
+    'GEMINI_VISION_MODEL_NAME', 'gemini-2.5-pro')
+GEMINI_PICKER_MODEL_NAME = os.environ.get(
+    'GEMINI_PICKER_MODEL_NAME', 'gemini-2.5-flash')
 
 
-
-# API Keys and Tokens from environment variables pointing to SSM
-TELEGRAM_BOT_TOKEN = get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH')
-GEMINI_API_KEY = get_secret('GEMINI_API_KEY_SSM_PATH')
-FDC_API_KEY = get_secret('FDC_API_KEY_SSM_PATH')
-GOOGLE_SHEETS_CREDENTIALS = get_secret('GOOGLE_SHEETS_CREDENTIALS_SSM_PATH')
-SPREADSHEET_ID = get_secret('SPREADSHEET_ID_SSM_PATH')
-
-
-def get_telegram_image(file_id):
+def get_telegram_image(file_id, bot_token):
     """Downloads an image from Telegram."""
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getFile?file_id={file_id}"
+    url = f"https://api.telegram.org/bot{bot_token}/getFile?file_id={file_id}"
     response = requests.get(url)
     response.raise_for_status()
     file_path = response.json()['result']['file_path']
-    image_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+    image_url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
     image_response = requests.get(image_url)
     image_response.raise_for_status()
     return image_response.content
@@ -51,9 +46,8 @@ def get_telegram_image(file_id):
 
 def analyze_image_with_gemini(image_bytes):
     """Analyzes an image with Google Gemini Vision API using the Python SDK."""
-    genai.configure(api_key=GEMINI_API_KEY)
     img = Image.open(io.BytesIO(image_bytes))
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    model = genai.GenerativeModel(GEMINI_VISION_MODEL_NAME)
     response = model.generate_content([
         "Identify the food items in the image. For each food item, provide an estimated weight in grams in parentheses. It is very important that the weight in parentheses comes directly after the food item it refers to. For example: '1 cooked chicken breast (170g)'; 'Broccoli florets (160g)'. Separate items with a semicolon (;). Do not include any introductory text in your response, only the list of items. If no food is identifiable in the image, respond with the single word: NO_FOOD.",
         img
@@ -63,7 +57,7 @@ def analyze_image_with_gemini(image_bytes):
     return response.text
 
 
-def get_nutrition_data(food_item):
+def get_nutrition_data(food_item, fdc_api_key):
     """
     Gets nutrition data from FoodData Central by making separate calls for each data type
     and letting Gemini pick the best match from the combined results.
@@ -76,8 +70,8 @@ def get_nutrition_data(food_item):
         try:
             # URL encode the data_type string to handle spaces, e.g., "Survey (FNDDS)"
             encoded_data_type = requests.utils.quote(data_type)
-            search_url = f"https://api.nal.usda.gov/fdc/v1/foods/search?query={food_item}&dataType={encoded_data_type}&api_key={FDC_API_KEY}&pageSize=10"
-            
+            search_url = f"https://api.nal.usda.gov/fdc/v1/foods/search?query={food_item}&dataType={encoded_data_type}&api_key={fdc_api_key}&pageSize=10"
+
             response = requests.get(search_url)
             response.raise_for_status()
             search_data_subset = response.json()
@@ -109,7 +103,7 @@ def get_nutrition_data(food_item):
     # Step 3: Ask Gemini to pick the best match
     prompt = f"""You are a nutrition expert. The user ate '{food_item}'. I found the following items in the USDA database. Which one is the best and most accurate match? Please respond with only the number of the best option.\n\n{options_string}"""
 
-    picker_model = genai.GenerativeModel('gemini-2.5-flash')
+    picker_model = genai.GenerativeModel(GEMINI_PICKER_MODEL_NAME)
     picker_response = picker_model.generate_content(prompt)
 
     best_option_number = 0
@@ -119,6 +113,8 @@ def get_nutrition_data(food_item):
     except (ValueError, IndexError):
         # If Gemini's response is not a valid number, or out of range,
         # fallback to the first result.
+        logger.warning(
+            f"Gemini picker returned invalid response: '{picker_response.text.strip()}'. Defaulting to option 1.")
         best_option_number = 1
         selected_food = search_data['foods'][0]
 
@@ -129,20 +125,21 @@ def get_nutrition_data(food_item):
     return {'foods': [selected_food]}
 
 
-def write_to_google_sheets(data):
+def write_to_google_sheets(data, google_sheets_credentials, spreadsheet_id):
     """Writes data to Google Sheets."""
-    creds_json = json.loads(GOOGLE_SHEETS_CREDENTIALS)
+    creds_json = json.loads(google_sheets_credentials)
     creds = service_account.Credentials.from_service_account_info(creds_json)
     service = build('sheets', 'v4', credentials=creds)
     sheet = service.spreadsheets()
     body = {'values': [data]}
     result = sheet.values().append(
-        spreadsheetId=SPREADSHEET_ID,
+        spreadsheetId=spreadsheet_id,
         range='Meals!A:F',
         valueInputOption='USER_ENTERED',
         insertDataOption='INSERT_ROWS',
         body=body
     ).execute()
+
     return result
 
 
@@ -151,6 +148,17 @@ def process_meal_from_message(message_body, message_id):
     Processes a single meal from an SQS message body.
     Downloads image, analyzes nutrition, logs to sheets, and notifies user.
     """
+    # For security and freshness, fetch all secrets and config here, not globally
+    telegram_bot_token = get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH')
+    gemini_api_key = get_secret('GEMINI_API_KEY_SSM_PATH')
+    fdc_api_key = get_secret('FDC_API_KEY_SSM_PATH')
+    google_sheets_credentials = get_secret(
+        'GOOGLE_SHEETS_CREDENTIALS_SSM_PATH')
+    spreadsheet_id = get_secret('SPREADSHEET_ID_SSM_PATH')
+
+    # Configure the Gemini library once per invocation
+    genai.configure(api_key=gemini_api_key)
+
     # Idempotency check
     try:
         # TTL is 24 hours (86400 seconds) from now
@@ -165,10 +173,12 @@ def process_meal_from_message(message_body, message_id):
         logger.info(f"Message {message_id} marked as processed.")
     except ClientError as e:
         if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
-            logger.warning(f"Message {message_id} already processed. Skipping.")
+            logger.warning(
+                f"Message {message_id} already processed. Skipping.")
             return  # IMPORTANT: Exit if already processed
         else:
-            logger.error(f"DynamoDB error for message {message_id}: {e}", exc_info=True)
+            logger.error(
+                f"DynamoDB error for message {message_id}: {e}", exc_info=True)
             raise  # Re-raise other DynamoDB errors
 
     chat_id = message_body['chat_id']
@@ -177,14 +187,14 @@ def process_meal_from_message(message_body, message_id):
     logger.info(
         f"Processing message for chat_id: {chat_id}, file_id: {file_id}")
 
-    image_bytes = get_telegram_image(file_id)
+    image_bytes = get_telegram_image(file_id, telegram_bot_token)
 
     try:
         food_items_text = analyze_image_with_gemini(image_bytes)
     except ValueError as e:
         logger.error(f"Gemini analysis failed: {e}", exc_info=True)
         send_telegram_message(
-            chat_id, "Sorry, I couldn't analyze the image. It might be an unsupported format or corrupted.", TELEGRAM_BOT_TOKEN)
+            chat_id, "Sorry, I couldn't analyze the image. It might be an unsupported format or corrupted.", telegram_bot_token)
         return
     logger.info(f"Gemini response: {food_items_text}")
 
@@ -192,7 +202,7 @@ def process_meal_from_message(message_body, message_id):
         logger.info(
             f"Gemini identified no food for chat_id: {chat_id}. Notifying user.")
         send_telegram_message(
-            chat_id, "Sorry, I couldn't identify any food in the image. Please try another one.", TELEGRAM_BOT_TOKEN)
+            chat_id, "Sorry, I couldn't identify any food in the image. Please try another one.", telegram_bot_token)
         return  # Stop processing for this message
 
     food_items = [item.strip() for item in food_items_text.split(';')]
@@ -226,7 +236,7 @@ def process_meal_from_message(message_body, message_id):
                 f"Could not determine weight for item: {item}. Skipping.")
             continue
 
-        nutrition_data = get_nutrition_data(food_name)
+        nutrition_data = get_nutrition_data(food_name, fdc_api_key)
         if nutrition_data and nutrition_data.get('foods'):
             found_food = nutrition_data['foods'][0]
             logger.info(
@@ -265,7 +275,8 @@ def process_meal_from_message(message_body, message_id):
         round(total_fat, 2)
     ]
 
-    write_to_google_sheets(sheet_data)
+    write_to_google_sheets(
+        sheet_data, google_sheets_credentials, spreadsheet_id)
 
     # Send results to the user
     if food_items:
@@ -280,7 +291,7 @@ def process_meal_from_message(message_body, message_id):
     result_message += f"- Protein: {round(total_protein, 2)}g\n"
     result_message += f"- Carbs: {round(total_carbs, 2)}g\n"
     result_message += f"- Fat: {round(total_fat, 2)}g"
-    send_telegram_message(chat_id, result_message, TELEGRAM_BOT_TOKEN)
+    send_telegram_message(chat_id, result_message, telegram_bot_token)
 
 
 def lambda_handler(event, context):
@@ -288,18 +299,19 @@ def lambda_handler(event, context):
     for record in event['Records']:
         try:
             message_body = json.loads(record['body'])
-            # Pass the SQS messageId to the processing function
             process_meal_from_message(message_body, record['messageId'])
 
         except Exception as e:
             logger.error(f"Error processing SQS message: {e}", exc_info=True)
             # Try to inform the user about the error
             try:
+                # Fetch token only when needed for error reporting
+                telegram_bot_token = get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH')
                 message_body = json.loads(record['body'])
                 if 'chat_id' in message_body:
                     chat_id = message_body['chat_id']
                     send_telegram_message(
-                        chat_id, "Sorry, there was an error processing your meal details.", TELEGRAM_BOT_TOKEN)
+                        chat_id, "Sorry, there was an error processing your meal details.", telegram_bot_token)
             except Exception as notify_e:
                 logger.error(
                     f"Failed to notify user about the processing error. Error: {notify_e}")
