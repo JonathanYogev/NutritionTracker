@@ -71,12 +71,12 @@ This queue will hold messages that fail to be processed after a certain number o
 
 ## 5. Create DynamoDB Table for Idempotency
 
-To ensure that each SQS message is processed exactly once, we will use a DynamoDB table to store the `messageId` of processed messages. This table will have a Time-To-Live (TTL) attribute to automatically clean up old entries.
+To ensure that each meal is processed exactly once, we will use a DynamoDB table to store the `idempotency_key` of processed messages. This table will have a Time-To-Live (TTL) attribute to automatically clean up old entries.
 
 1.  **Navigate to DynamoDB** in the AWS Console.
 2.  Click **Create table**.
 3.  **Table name**: `nutrition-tracker-processed-messages`
-4.  **Partition key**: `messageId` (String)
+4.  **Partition key**: `idempotency_key` (String)
 5.  **Table settings**: Keep default settings.
 6.  **Time to Live (TTL)**:
     *   Enable TTL.
