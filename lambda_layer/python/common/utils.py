@@ -1,4 +1,3 @@
-
 import os
 import logging
 import boto3
@@ -44,3 +43,4 @@ def send_telegram_message(chat_id, text, bot_token):
     except requests.exceptions.RequestException as e:
         logger.error(
             f"Failed to send message to chat_id {chat_id}. Error: {e}")
+        raise e
