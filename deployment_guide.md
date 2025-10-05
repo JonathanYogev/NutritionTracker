@@ -75,7 +75,7 @@ To ensure that each meal is processed exactly once, we will use a DynamoDB table
 
 1.  **Navigate to DynamoDB** in the AWS Console.
 2.  Click **Create table**.
-3.  **Table name**: `nutrition-tracker-processed-messages`
+3.  **Table name**: `nutrition-tracker-messages`
 4.  **Partition key**: `idempotency_key` (String)
 5.  **Table settings**: Keep default settings.
 6.  **Time to Live (TTL)**:
@@ -184,7 +184,7 @@ Create three separate IAM roles, one for each Lambda function, to ensure each fu
                     "dynamodb:GetItem",
                     "dynamodb:UpdateItem"
                 ],
-                "Resource": "arn:aws:dynamodb:REGION:ACCOUNT_ID:table/nutrition-tracker-processed-messages"
+                "Resource": "arn:aws:dynamodb:REGION:ACCOUNT_ID:table/nutrition-tracker-messages"
             }
         ]
     }
