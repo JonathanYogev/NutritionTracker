@@ -30,7 +30,11 @@ def lambda_handler(event, context):
             # We can't notify the user because we might not have chat_id yet.
             return {'statusCode': 500, 'body': json.dumps("Internal server configuration error.")}
 
-        body = json.loads(event.get('body', '{}'))
+        try:
+            body = json.loads(event.get('body', '{}'))
+        except json.JSONDecodeError:
+            logger.error("Received a non-JSON body.")
+            return {'statusCode': 400, 'body': json.dumps('Invalid JSON format in request body.')}
 
         if 'message' not in body or 'photo' not in body['message']:
             logger.info("No photo found in the message.")
