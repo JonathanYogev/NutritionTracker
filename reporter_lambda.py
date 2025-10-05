@@ -114,11 +114,11 @@ def lambda_handler(event, context):
         logger.info(f"Appended daily summary to '{reports_sheet_name}' sheet.")
 
         # 4. Send summary to Telegram
-        report_message = f"Daily Nutrition Summary for {today_str}:\n"
-        report_message += f"- Total Calories: {round(total_calories, 2)}\n"
-        report_message += f"- Total Protein: {round(total_protein, 2)}g\n"
-        report_message += f"- Total Carbs: {round(total_carbs, 2)}g\n"
-        report_message += f"- Total Fat: {round(total_fat, 2)}g"
+        report_message = f"📊 Daily Nutrition Summary for {today_str}:\n\n"
+        report_message += f"🔥 Total Calories: {round(total_calories, 2)}\n"
+        report_message += f"💪 Total Protein: {round(total_protein, 2)}g\n"
+        report_message += f"🍞 Total Carbs: {round(total_carbs, 2)}g\n"
+        report_message += f"🥑 Total Fat: {round(total_fat, 2)}g"
 
         send_telegram_message(
             telegram_chat_id, report_message, telegram_bot_token)

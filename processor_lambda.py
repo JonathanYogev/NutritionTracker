@@ -255,11 +255,11 @@ def _calculate_meal_nutrition(food_items, fdc_api_key):
 def _format_result_message(food_items, nutrition_totals):
     """Formats the final nutrition summary message for Telegram."""
     items_text = "\n".join([f"- {item}" for item in food_items if item])
-    result_message = f"Nutrition for your meal:\n{items_text}\n\n"
-    result_message += f"- Calories: {round(nutrition_totals['calories'], 2)}\n"
-    result_message += f"- Protein: {round(nutrition_totals['protein'], 2)}g\n"
-    result_message += f"- Carbs: {round(nutrition_totals['carbs'], 2)}g\n"
-    result_message += f"- Fat: {round(nutrition_totals['fat'], 2)}g"
+    result_message = f"🍽️ Nutrition for your meal:\n{items_text}\n\n"
+    result_message += f"🔥 Calories: {round(nutrition_totals['calories'], 2)}\n"
+    result_message += f"💪 Protein: {round(nutrition_totals['protein'], 2)}g\n"
+    result_message += f"🍞 Carbs: {round(nutrition_totals['carbs'], 2)}g\n"
+    result_message += f"🥑 Fat: {round(nutrition_totals['fat'], 2)}g"
     return result_message
 
 
