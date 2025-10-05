@@ -21,8 +21,7 @@ logger.setLevel(logging.INFO)
 
 # Initialize DynamoDB client for idempotency
 dynamodb = boto3.resource('dynamodb')
-PROCESSED_MESSAGES_TABLE_NAME = "nutrition-tracker-messages"
-processed_messages_table = dynamodb.Table(PROCESSED_MESSAGES_TABLE_NAME)
+
 
 
 # Externalize model names for a flexible, two-model strategy
@@ -142,93 +141,62 @@ def write_to_google_sheets(data, google_sheets_credentials, spreadsheet_id):
     return result
 
 
-def process_meal_from_message(message_body):
+def _check_and_update_idempotency(idempotency_key, table):
     """
-    Processes a single meal from an SQS message body.
-    Downloads image, analyzes nutrition, logs to sheets, and notifies user.
+    Checks for and sets the idempotency key in DynamoDB.
+
+    Returns:
+        bool: True if processing should continue, False if it should be skipped.
     """
-    # For security and freshness, fetch all secrets and config here, not globally
-    telegram_bot_token = get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH')
-    gemini_api_key = get_secret('GEMINI_API_KEY_SSM_PATH')
-    fdc_api_key = get_secret('FDC_API_KEY_SSM_PATH')
-    google_sheets_credentials = get_secret(
-        'GOOGLE_SHEETS_CREDENTIALS_SSM_PATH')
-    spreadsheet_id = get_secret('SPREADSHEET_ID_SSM_PATH')
-
-    # Configure the Gemini library once per invocation
-    genai.configure(api_key=gemini_api_key)
-
-    idempotency_key = message_body['idempotency_key']
-
-    # Stateful Idempotency Check
     try:
-        # Check if the message has already been processed or is in progress
-        response = processed_messages_table.get_item(
-            Key={'idempotency_key': idempotency_key})
+        response = table.get_item(Key={'idempotency_key': idempotency_key})
         item = response.get('Item')
 
         if item and item.get('status') == 'COMPLETED':
-            logger.warning(
-                f"Request {idempotency_key} already completed. Skipping.")
-            return
+            logger.warning(f"Request {idempotency_key} already completed. Skipping.")
+            return False
 
         if item and item.get('status') == 'PROCESSING':
-            logger.warning(
-                f"Request {idempotency_key} is already processing. Assuming previous attempt failed. Retrying.")
-            # Proceed with execution
+            logger.warning(f"Request {idempotency_key} is already processing. Retrying.")
+            return True
 
-        else:
-            # New request, mark as PROCESSING
-            ttl_timestamp = int(time.time()) + 86400  # 24-hour TTL
-            processed_messages_table.put_item(
-                Item={
-                    'idempotency_key': idempotency_key,
-                    'status': 'PROCESSING',
-                    'ttl': ttl_timestamp
-                },
-                ConditionExpression='attribute_not_exists(idempotency_key)'
-            )
-            logger.info(f"Request {idempotency_key} marked as PROCESSING.")
+        # New request, mark as PROCESSING
+        ttl_timestamp = int(time.time()) + 86400  # 24-hour TTL
+        table.put_item(
+            Item={'idempotency_key': idempotency_key, 'status': 'PROCESSING', 'ttl': ttl_timestamp},
+            ConditionExpression='attribute_not_exists(idempotency_key)'
+        )
+        logger.info(f"Request {idempotency_key} marked as PROCESSING.")
+        return True
 
     except ClientError as e:
         if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
-            logger.warning(
-                f"Request {idempotency_key} was created by a concurrent process. Skipping.")
-            return  # Another process is handling this, so we can exit.
-        logger.error(
-            f"DynamoDB error for request {idempotency_key}: {e}", exc_info=True)
+            logger.warning(f"Request {idempotency_key} was created by a concurrent process. Skipping.")
+            return False
+        logger.error(f"DynamoDB error for request {idempotency_key}: {e}", exc_info=True)
         raise
 
-    chat_id = message_body['chat_id']
-    file_id = message_body['file_id']
-
-    logger.info(
-        f"Processing message for chat_id: {chat_id}, file_id: {file_id}")
-
-    image_bytes = get_telegram_image(file_id, telegram_bot_token)
-
+def _get_food_items_from_image(image_bytes, chat_id, telegram_bot_token):
+    """Analyzes image with Gemini and returns a list of food items."""
     try:
         food_items_text = analyze_image_with_gemini(image_bytes)
+        logger.info(f"Gemini response: {food_items_text}")
+
+        if food_items_text.strip() == 'NO_FOOD':
+            logger.info(f"Gemini identified no food for chat_id: {chat_id}. Notifying user.")
+            send_telegram_message(chat_id, "Sorry, I couldn't identify any food in the image. Please try another one.", telegram_bot_token)
+            return None
+        
+        return [item.strip() for item in food_items_text.split(';')]
+
     except ValueError as e:
         logger.error(f"Gemini analysis failed: {e}", exc_info=True)
-        send_telegram_message(
-            chat_id, "Sorry, I couldn't analyze the image. It might be an unsupported format or corrupted.", telegram_bot_token)
-        return
-    logger.info(f"Gemini response: {food_items_text}")
+        send_telegram_message(chat_id, "Sorry, I couldn't analyze the image. It might be an unsupported format or corrupted.", telegram_bot_token)
+        return None
 
-    if food_items_text.strip() == 'NO_FOOD':
-        logger.info(
-            f"Gemini identified no food for chat_id: {chat_id}. Notifying user.")
-        send_telegram_message(
-            chat_id, "Sorry, I couldn't identify any food in the image. Please try another one.", telegram_bot_token)
-        return  # Stop processing for this message
-
-    food_items = [item.strip() for item in food_items_text.split(';')]
-
-    total_calories = 0
-    total_protein = 0
-    total_carbs = 0
-    total_fat = 0
+def _calculate_meal_nutrition(food_items, fdc_api_key):
+    """Calculates total nutrition for a list of food items."""
+    totals = {'calories': 0, 'protein': 0, 'carbs': 0, 'fat': 0}
 
     for item in food_items:
         if not item:
@@ -241,78 +209,93 @@ def process_meal_from_message(message_body):
             weight = int(weight_match.group(1))
             food_name = item[:weight_match.start()].strip()
 
-        # Remove quantity from food name before searching
         food_name_parts = food_name.split()
         if food_name_parts and food_name_parts[0].isdigit():
             food_name = ' '.join(food_name_parts[1:])
 
-        logger.info(
-            f"Processing item: '{item}'. Cleaned food name for search: '{food_name}', weight: {weight}g")
+        logger.info(f"Processing item: '{item}'. Cleaned food name: '{food_name}', weight: {weight}g")
 
         if weight == 0:
-            logger.warning(
-                f"Could not determine weight for item: {item}. Skipping.")
+            logger.warning(f"Could not determine weight for item: {item}. Skipping.")
             continue
 
         nutrition_data = get_nutrition_data(food_name, fdc_api_key)
         if nutrition_data and nutrition_data.get('foods'):
             found_food = nutrition_data['foods'][0]
-            logger.info(
-                f"FDC found food: {found_food.get('description')}")
+            logger.info(f"FDC found food: {found_food.get('description')}")
 
-            nutrients = found_food.get('foodNutrients', [])
-            for nutrient in nutrients:
+            for nutrient in found_food.get('foodNutrients', []):
                 value_per_100g = nutrient.get('value', 0)
-                nutrient_name = nutrient.get('nutrientName')
-                nutrient_unit = nutrient.get('unitName', '').upper()
-
-                if nutrient_name in ['Energy', 'Protein', 'Carbohydrate, by difference', 'Total lipid (fat)']:
-                    logger.info(
-                        f"Nutrient: {nutrient_name}, Value per 100g: {value_per_100g} {nutrient_unit}")
-
                 value_per_gram = value_per_100g / 100
-                if nutrient_name == 'Energy' and nutrient_unit == 'KCAL':
-                    total_calories += value_per_gram * weight
+                nutrient_name = nutrient.get('nutrientName')
+                
+                if nutrient_name == 'Energy' and nutrient.get('unitName', '').upper() == 'KCAL':
+                    totals['calories'] += value_per_gram * weight
                 elif nutrient_name == 'Protein':
-                    total_protein += value_per_gram * weight
+                    totals['protein'] += value_per_gram * weight
                 elif nutrient_name == 'Carbohydrate, by difference':
-                    total_carbs += value_per_gram * weight
+                    totals['carbs'] += value_per_gram * weight
                 elif nutrient_name == 'Total lipid (fat)':
-                    total_fat += value_per_gram * weight
+                    totals['fat'] += value_per_gram * weight
+    
+    return totals
 
-    # Get current time in Asia/Jerusalem timezone
-    now = datetime.now(ZoneInfo('Asia/Jerusalem')
-                       ).strftime("%Y-%m-%d %H:%M:%S")
+def _format_result_message(food_items, nutrition_totals):
+    """Formats the final nutrition summary message for Telegram."""
+    items_text = "\n".join([f"- {item}" for item in food_items if item])
+    result_message = f"Nutrition for your meal:\n{items_text}\n\n"
+    result_message += f"- Calories: {round(nutrition_totals['calories'], 2)}\n"
+    result_message += f"- Protein: {round(nutrition_totals['protein'], 2)}g\n"
+    result_message += f"- Carbs: {round(nutrition_totals['carbs'], 2)}g\n"
+    result_message += f"- Fat: {round(nutrition_totals['fat'], 2)}g"
+    return result_message
 
+def process_meal_from_message(message_body, configs):
+    """
+    Processes a single meal from an SQS message body.
+    Downloads image, analyzes nutrition, logs to sheets, and notifies user.
+    """
+    idempotency_key = message_body['idempotency_key']
+    if not _check_and_update_idempotency(idempotency_key, configs['table']):
+        return
+
+    chat_id = message_body['chat_id']
+    file_id = message_body['file_id']
+    logger.info(f"Processing message for chat_id: {chat_id}, file_id: {file_id}")
+
+    image_bytes = get_telegram_image(file_id, configs['telegram_bot_token'])
+    
+    food_items = _get_food_items_from_image(image_bytes, chat_id, configs['telegram_bot_token'])
+    if food_items is None:
+        # User has been notified, and we should stop processing.
+        # Mark as complete to prevent retries for non-food images.
+        configs['table'].update_item(
+            Key={'idempotency_key': idempotency_key},
+            UpdateExpression="set #status = :s",
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={':s': 'COMPLETED'}
+        )
+        logger.info(f"NO FOOD detected - Request {idempotency_key} marked as COMPLETED.")
+        return
+
+    nutrition_totals = _calculate_meal_nutrition(food_items, configs['fdc_api_key'])
+
+    now = datetime.now(ZoneInfo('Asia/Jerusalem')).strftime("%Y-%m-%d %H:%M:%S")
     sheet_data = [
         now,
         ', '.join(food_items),
-        round(total_calories, 2),
-        round(total_protein, 2),
-        round(total_carbs, 2),
-        round(total_fat, 2)
+        round(nutrition_totals['calories'], 2),
+        round(nutrition_totals['protein'], 2),
+        round(nutrition_totals['carbs'], 2),
+        round(nutrition_totals['fat'], 2)
     ]
+    write_to_google_sheets(sheet_data, configs['google_sheets_credentials'], configs['spreadsheet_id'])
 
-    write_to_google_sheets(
-        sheet_data, google_sheets_credentials, spreadsheet_id)
-
-    # Send results to the user
-    if food_items:
-        # Use the original food items identified by Gemini for the message
-        items_text = "\n".join(
-            [f"- {item}" for item in food_items if item])
-        result_message = f"Nutrition for your meal:\n{items_text}\n\n"
-    else:
-        result_message = "Nutrition for your meal:\n"
-
-    result_message += f"- Calories: {round(total_calories, 2)}\n"
-    result_message += f"- Protein: {round(total_protein, 2)}g\n"
-    result_message += f"- Carbs: {round(total_carbs, 2)}g\n"
-    result_message += f"- Fat: {round(total_fat, 2)}g"
-    send_telegram_message(chat_id, result_message, telegram_bot_token)
+    result_message = _format_result_message(food_items, nutrition_totals)
+    send_telegram_message(chat_id, result_message, configs['telegram_bot_token'])
 
     # Mark as COMPLETED
-    processed_messages_table.update_item(
+    configs['table'].update_item(
         Key={'idempotency_key': idempotency_key},
         UpdateExpression="set #status = :s",
         ExpressionAttributeNames={'#status': 'status'},
@@ -323,24 +306,39 @@ def process_meal_from_message(message_body):
 
 def lambda_handler(event, context):
     """Lambda function entry point for processing SQS messages."""
+    # --- Performance Refactoring: Setup once per invocation ---
+    try:
+        table_name = os.environ['DYNAMODB_TABLE_NAME']
+        configs = {
+            'telegram_bot_token': get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH'),
+            'gemini_api_key': get_secret('GEMINI_API_KEY_SSM_PATH'),
+            'fdc_api_key': get_secret('FDC_API_KEY_SSM_PATH'),
+            'google_sheets_credentials': get_secret('GOOGLE_SHEETS_CREDENTIALS_SSM_PATH'),
+            'spreadsheet_id': get_secret('SPREADSHEET_ID_SSM_PATH'),
+            'table': dynamodb.Table(table_name)
+        }
+        genai.configure(api_key=configs['gemini_api_key'])
+    except Exception as e:
+        logger.critical(f"Failed to load initial configuration. Aborting invocation. Error: {e}", exc_info=True)
+        # Re-raise to signal a catastrophic failure for this invocation
+        raise
+
     for record in event['Records']:
         try:
             message_body = json.loads(record['body'])
-            process_meal_from_message(message_body)
+            process_meal_from_message(message_body, configs)
 
         except Exception as e:
             logger.error(f"Error processing SQS message: {e}", exc_info=True)
-            # Try to inform the user about the error
             try:
-                # Fetch token only when needed for error reporting
-                telegram_bot_token = get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH')
                 message_body = json.loads(record['body'])
                 if 'chat_id' in message_body:
-                    chat_id = message_body['chat_id']
                     send_telegram_message(
-                        chat_id, "Sorry, there was an error processing your meal details.", telegram_bot_token)
+                        message_body['chat_id'], 
+                        "Sorry, there was an error processing your meal details.", 
+                        configs.get('telegram_bot_token') # Use loaded config if available
+                    )
             except Exception as notify_e:
-                logger.error(
-                    f"Failed to notify user about the processing error. Error: {notify_e}")
+                logger.error(f"Failed to notify user about the processing error. Error: {notify_e}")
             # Re-raise the exception to ensure the message is redriven to the DLQ
             raise

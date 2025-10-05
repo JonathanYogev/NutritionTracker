@@ -252,6 +252,7 @@ For each function below, follow these general steps.
     -   `FDC_API_KEY_SSM_PATH`: `/nutrition-tracker/fdc-api-key`
     -   `GOOGLE_SHEETS_CREDENTIALS_SSM_PATH`: `/nutrition-tracker/google-sheets-credentials`
     -   `SPREADSHEET_ID_SSM_PATH`: `/nutrition-tracker/spreadsheet-id`
+    -   `DYNAMODB_TABLE_NAME`: `nutrition-tracker-messages`
 6.  **Increase Timeout**: Set the timeout to **5 minutes** to allow for image processing.
 
 ### 8.3. `reporter_lambda`
