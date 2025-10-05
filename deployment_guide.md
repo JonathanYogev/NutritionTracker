@@ -179,7 +179,11 @@ Create three separate IAM roles, one for each Lambda function, to ensure each fu
             {
                 "Sid": "AllowDynamoDBIdempotencyTableAccess",
                 "Effect": "Allow",
-                "Action": "dynamodb:PutItem",
+                "Action": [
+                    "dynamodb:PutItem",
+                    "dynamodb:GetItem",
+                    "dynamodb:UpdateItem"
+                ],
                 "Resource": "arn:aws:dynamodb:REGION:ACCOUNT_ID:table/nutrition-tracker-processed-messages"
             }
         ]
@@ -223,7 +227,7 @@ For each function below, follow these general steps.
     -   Navigate to **Lambda** > **Create function**.
     -   **Name**: `nutrition-tracker-client`.
     -   **Runtime**: Python 3.12.
-    -   **Role**: Choose the `nutrition-tracker-lambda-role` you created.
+    -   **Role**: Choose the `nutrition-tracker-client-lambda-role` you created.
 2.  **Add Code**: Copy the code from `client_lambda.py` and paste it into the inline code editor.
 3.  **Add Layer**:
     -   In the "Layers" section, click **Add a layer**.
@@ -239,7 +243,7 @@ For each function below, follow these general steps.
 1.  **Create Function**:
     -   **Name**: `nutrition-tracker-processor`.
     -   **Runtime**: Python 3.12.
-    -   **Role**: `nutrition-tracker-lambda-role`.
+    -   **Role**: `nutrition-tracker-processor-lambda-role`.
 2.  **Add Code**: Copy the code from `processor_lambda.py` into the editor.
 3.  **Add Layer**: Add the `nutrition-tracker-dependencies` layer.
 4.  **Add Trigger**:
@@ -260,7 +264,7 @@ For each function below, follow these general steps.
 1.  **Create Function**:
     -   **Name**: `nutrition-tracker-reporter`.
     -   **Runtime**: Python 3.12.
-    -   **Role**: `nutrition-tracker-lambda-role`.
+    -   **Role**: `nutrition-tracker-reporter-lambda-role`.
 2.  **Add Code**: Copy the code from `reporter_lambda.py` into the editor.
 3.  **Add Layer**: Add the `nutrition-tracker-dependencies` layer.
 4.  **Add Trigger (Scheduled)**:
