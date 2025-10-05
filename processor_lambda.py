@@ -206,6 +206,7 @@ def _get_food_items_from_image(image_bytes, chat_id, telegram_bot_token):
 def _calculate_meal_nutrition(food_items, fdc_api_key):
     """Calculates total nutrition for a list of food items."""
     totals = {'calories': 0, 'protein': 0, 'carbs': 0, 'fat': 0}
+    failed_items = []
 
     for item in food_items:
         if not item:
@@ -231,28 +232,33 @@ def _calculate_meal_nutrition(food_items, fdc_api_key):
             continue
 
         nutrition_data = get_nutrition_data(food_name, fdc_api_key)
-        if nutrition_data and nutrition_data.get('foods'):
-            found_food = nutrition_data['foods'][0]
-            logger.info(f"FDC found food: {found_food.get('description')}")
+        if not nutrition_data or not nutrition_data.get('foods'):
+            logger.warning(
+                f"Could not find nutrition data for '{food_name}'. Skipping.")
+            failed_items.append(item)
+            continue
 
-            for nutrient in found_food.get('foodNutrients', []):
-                value_per_100g = nutrient.get('value', 0)
-                value_per_gram = value_per_100g / 100
-                nutrient_name = nutrient.get('nutrientName')
+        found_food = nutrition_data['foods'][0]
+        logger.info(f"FDC found food: {found_food.get('description')}")
 
-                if nutrient_name == 'Energy' and nutrient.get('unitName', '').upper() == 'KCAL':
-                    totals['calories'] += value_per_gram * weight
-                elif nutrient_name == 'Protein':
-                    totals['protein'] += value_per_gram * weight
-                elif nutrient_name == 'Carbohydrate, by difference':
-                    totals['carbs'] += value_per_gram * weight
-                elif nutrient_name == 'Total lipid (fat)':
-                    totals['fat'] += value_per_gram * weight
+        for nutrient in found_food.get('foodNutrients', []):
+            value_per_100g = nutrient.get('value', 0)
+            value_per_gram = value_per_100g / 100
+            nutrient_name = nutrient.get('nutrientName')
 
-    return totals
+            if nutrient_name == 'Energy' and nutrient.get('unitName', '').upper() == 'KCAL':
+                totals['calories'] += value_per_gram * weight
+            elif nutrient_name == 'Protein':
+                totals['protein'] += value_per_gram * weight
+            elif nutrient_name == 'Carbohydrate, by difference':
+                totals['carbs'] += value_per_gram * weight
+            elif nutrient_name == 'Total lipid (fat)':
+                totals['fat'] += value_per_gram * weight
+
+    return totals, failed_items
 
 
-def _format_result_message(food_items, nutrition_totals):
+def _format_result_message(food_items, nutrition_totals, failed_items):
     """Formats the final nutrition summary message for Telegram."""
     items_text = "\n".join([f"- {item}" for item in food_items if item])
     result_message = f"🍽️ Nutrition for your meal:\n{items_text}\n\n"
@@ -260,6 +266,11 @@ def _format_result_message(food_items, nutrition_totals):
     result_message += f"💪 Protein: {round(nutrition_totals['protein'], 2)}g\n"
     result_message += f"🍞 Carbs: {round(nutrition_totals['carbs'], 2)}g\n"
     result_message += f"🥑 Fat: {round(nutrition_totals['fat'], 2)}g"
+
+    if failed_items:
+        failed_items_str = ", ".join(failed_items)
+        result_message += f"\n\n⚠️ Note: Could not calculate nutrition for: {failed_items_str}."
+
     return result_message
 
 
@@ -294,7 +305,7 @@ def process_meal_from_message(message_body, configs):
             f"NO FOOD detected - Request {idempotency_key} marked as COMPLETED.")
         return
 
-    nutrition_totals = _calculate_meal_nutrition(
+    nutrition_totals, failed_items = _calculate_meal_nutrition(
         food_items, configs['fdc_api_key'])
 
     now = datetime.now(ZoneInfo('Asia/Jerusalem')
