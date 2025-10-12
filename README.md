@@ -13,51 +13,20 @@ This project is a serverless, AI-powered nutrition tracker that allows users to 
 - **Robust & Scalable Architecture**: Built on a serverless AWS stack (Lambda, SQS, API Gateway, DynamoDB) for high reliability and scalability.
 - **Error Handling and Monitoring**: Employs an SQS Dead-Letter Queue (DLQ) to capture and isolate failed messages for debugging, with a CloudWatch Alarm for immediate notification of processing failures.
 
+
 ## Architecture
 
-The application consists of three core, decoupled services orchestrated by AWS:
+The application consists of three core, decoupled serverless services orchestrated by AWS.
+For a detailed architectural overview, including component descriptions and data flow, please refer to the [Architecture Documentation](./docs/architecture.md).
 
-![AI Nutrition Tracker Architecture Diagram](./images/architecture_diagram.png)
-
-1.  **Client Lambda (`client_lambda.py`)**:
-    -   Triggered by an **API Gateway** webhook that receives messages from Telegram.
-    -   When a user sends an image, this function dispatches a job message to an **SQS queue**.
-    -   Provides an immediate "Processing..." acknowledgment to the user.
-
-2.  **Processor Lambda (`processor_lambda.py`)**:
-    -   Triggered by new messages in the **SQS queue**.
-    -   **Idempotency Check**: Uses a DynamoDB table to ensure each message is processed only once.
-    -   Downloads the image from Telegram.
-    -   Uses the Gemini Vision API to identify food items and estimate their weights.
-    -   For each food item, it queries the FoodData Central API. Gemini is then used again to analyze the search results and select the best nutritional match.
-    -   Calculates the total nutrition for the meal.
-    -   Writes the meal data to the primary Google Sheet.
-    -   Sends a final summary message to the user on Telegram.
-
-3.  **Reporter Lambda (`reporter_lambda.py`)**:
-    -   Triggered by a daily **Amazon EventBridge** schedule (cron job).
-    -   Reads all meal entries for the current day from the Google Sheet.
-    -   Calculates the total nutritional values for the day.
-    -   Appends the daily summary to a separate "Daily Reports" sheet.
-    -   Sends the daily summary report to the user on Telegram.
-
-## Error Handling and Monitoring
-
--   **SQS Dead-Letter Queue (DLQ)**: If the `processor_lambda` repeatedly fails to process a message, SQS automatically moves the message to a DLQ. This prevents endless retries and isolates problematic messages for manual inspection and debugging.
--   **CloudWatch Alarm**: A CloudWatch alarm monitors the DLQ. If a message arrives in the DLQ, the alarm triggers a notification, ensuring immediate awareness of any processing failures.
+![AI Nutrition Tracker Architecture Diagram](./docs/images/architecture_diagram.png)
 
 ## Setup and Deployment
 
-A complete, step-by-step guide for deploying the application is available in [**deployment_guide.md**](./deployment_guide.md).
+Detailed instructions for setting up and deploying the Nutrition Tracker are available in the `docs/deployment` directory.
 
-The high-level steps are:
-1.  **Prerequisites**: Ensure you have an AWS account, a Telegram bot, and a Google Cloud project with the necessary APIs enabled.
-2.  **Store Secrets**: Securely store all API keys and tokens in AWS Systems Manager (SSM) Parameter Store.
-3.  **Create AWS Resources**: Set up an SQS queue with a corresponding Dead-Letter Queue (DLQ), a DynamoDB table for idempotency, and an IAM role with the appropriate permissions.
-4.  **Create a Lambda Layer**: Create a single Lambda Layer to manage all Python dependencies for the functions.
-5.  **Deploy Functions**: Deploy the three Lambda functions (`client`, `processor`, `reporter`) and configure their triggers and environment variables.
-6.  **Configure API Gateway**: Set up an HTTP API endpoint to act as the Telegram webhook.
-7.  **Set Webhook**: Point your Telegram bot to the new API Gateway endpoint.
+*   **[Deploying with Terraform](./docs/deployment/terraform.md)**: Recommended guide for deploying the entire infrastructure using Terraform.
+*   **[Manual Deployment Guide](./docs/deployment/manual.md)**: Step-by-step instructions for deploying components manually via the AWS Console.
 
 ## Usage
 
@@ -66,3 +35,30 @@ The high-level steps are:
 3.  Receive a confirmation that your meal is being processed.
 4.  A few moments later, receive a message with the nutritional breakdown for the meal.
 5.  At the end of each day, receive a daily summary report.
+
+## Error Handling and Monitoring
+
+-   **SQS Dead-Letter Queue (DLQ)**: If the `processor_lambda` repeatedly fails to process a message, SQS automatically moves the message to a DLQ. This prevents endless retries and isolates problematic messages for manual inspection and debugging.
+-   **CloudWatch Alarm**: A CloudWatch alarm monitors the DLQ. If a message arrives in the DLQ, the alarm triggers a notification, ensuring immediate awareness of any processing failures.
+
+## Cost 
+
+This project is designed to be completely free to operate for typical personal use, leveraging the generous free tiers offered by AWS and the free usage policies of integrated third-party services. Below is a breakdown of the main components and their cost implications:
+
+*   **AWS Lambda:** 1M free requests per month and 400,000 GB-seconds of compute time per month.
+
+*   **AWS API Gateway (HTTP API):** 1M free requests per month.
+*   **Amazon SQS (Simple Queue Service):** 1M free requests per month.
+
+*   **Amazon DynamoDB:** free 25 GB of storage.
+
+*   **AWS Systems Manager (SSM) Parameter Store:** standard parameters are free.
+
+*   **Amazon CloudWatch Events (EventBridge):** 14M free events per month.
+
+*   **Google Gemini API:**
+    *   **Gemini 2.5 Pro:** free 5 RPM, 125,000 TPM, 100 RPD.
+    *   **Gemini 2.5 Flash:** free 10 RPM, 250,000 TPM, 250 RPD. 
+*   **FoodData Central (FDC) API:** completely free.
+*   **Google Sheets API:** free to use.
+*   **Telegram Bot API:** completely free.
