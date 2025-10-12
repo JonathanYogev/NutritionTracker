@@ -18,10 +18,13 @@ The application uses a Google Sheet to store meal entries and daily summaries.
     *   Go to [Google Sheets](https://sheets.new) and create a new blank spreadsheet.
     *   Rename the spreadsheet to something descriptive (e.g., "Nutrition Tracker Data").
 2.  **Configure Sheets**:
-    *   Ensure the first sheet is named `Meals`. This is where individual meal entries will be logged. set the columns names as this example:
+    *   Ensure the first sheet is named `Meals`. This is where individual meal entries will be logged. 
+    
+    * set the columns names as:
     ![Sheet-set-columns](../images/set-sheet-meals.png)
-    *   Create a second sheet and name it `Daily_Reports`. This is where daily summaries will be appended. 
-    set the columns names as this example:
+    *   Create a second sheet and name it `Daily_Reports`. This is where daily summaries will be appended.
+
+    * set the columns names as:
     ![sheet-set-columns](../images/set-sheet-reports.png)
 3.  **Share with Service Account**:
     *   Locate the email address of your Google Service Account (this is typically found in the JSON credentials file you downloaded, under the `client_email` field).
