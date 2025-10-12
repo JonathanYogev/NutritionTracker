@@ -56,13 +56,13 @@ data "aws_iam_policy_document" "client_lambda_policy" {
 }
 
 resource "aws_iam_role" "client_lambda_role" {
-  name               = "${var.env}-nutrition-tracker-client-lambda-role"
+  name = "${var.env}-nutrition-tracker-client-lambda-role"
   assume_role_policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
-        Action    = "sts:AssumeRole"
-        Effect    = "Allow"
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
         Principal = {
           Service = "lambda.amazonaws.com"
         }
@@ -97,8 +97,8 @@ data "aws_iam_policy_document" "processor_lambda_policy" {
   }
 
   statement {
-    sid     = "AllowSQSQueueAccess"
-    effect  = "Allow"
+    sid    = "AllowSQSQueueAccess"
+    effect = "Allow"
     actions = [
       "sqs:ReceiveMessage",
       "sqs:DeleteMessage",
@@ -124,13 +124,13 @@ data "aws_iam_policy_document" "processor_lambda_policy" {
 }
 
 resource "aws_iam_role" "processor_lambda_role" {
-  name               = "${var.env}-nutrition-tracker-processor-lambda-role"
+  name = "${var.env}-nutrition-tracker-processor-lambda-role"
   assume_role_policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
-        Action    = "sts:AssumeRole"
-        Effect    = "Allow"
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
         Principal = {
           Service = "lambda.amazonaws.com"
         }
@@ -165,13 +165,13 @@ data "aws_iam_policy_document" "reporter_lambda_policy" {
 }
 
 resource "aws_iam_role" "reporter_lambda_role" {
-  name               = "${var.env}-nutrition-tracker-reporter-lambda-role"
+  name = "${var.env}-nutrition-tracker-reporter-lambda-role"
   assume_role_policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
-        Action    = "sts:AssumeRole"
-        Effect    = "Allow"
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
         Principal = {
           Service = "lambda.amazonaws.com"
         }
