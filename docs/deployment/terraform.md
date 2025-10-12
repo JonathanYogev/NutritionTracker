@@ -29,13 +29,12 @@ By using a dedicated role, you ensure that your Terraform deployments are secure
 
 Follow the instructions in the [Manual Deployment Guide - Create Google Sheet section](./manual.md#2-create-google-sheet) to create your Google Sheet and share it with your service account. Make a note of the **Spreadsheet ID**.
 
-#### 2.2. Store Secrets in SSM Parameter Store
+#### 2.2. Store Secrets in SSM Parameter Store Using AWS CLI
 
 This deployment uses a Terraform variable, `env` (which defaults to `dev`), to prefix all resources. You **must** create your secrets in AWS SSM Parameter Store using this prefix.
 
-**Option A: Using AWS CLI (Recommended)**
 
-This is the fastest method. Copy the commands below, replace the placeholder values (e.g., `YOUR_TELEGRAM_BOT_TOKEN`) with your actual secrets, and run them in your terminal.
+replace the placeholder values (e.g., `YOUR_TELEGRAM_BOT_TOKEN`) with your actual secrets, and run them in your terminal.
 
 ```bash
 # For your Telegram Bot Token
@@ -57,17 +56,6 @@ aws ssm put-parameter --name "/dev/nutrition-tracker/spreadsheet-id" --value "YO
 aws ssm put-parameter --name "/dev/nutrition-tracker/telegram-chat-id" --value "YOUR_TELEGRAM_CHAT_ID" --type "SecureString" --region <YOUR_REGION>
 ```
 
-**Option B: Using AWS Management Console**
-
-1.  Navigate to **AWS Systems Manager > Parameter Store**.
-2.  Click **Create parameter** for each secret, ensuring the **Name** matches exactly. Use the **Type** `SecureString` for sensitive values.
-
-    -   `/dev/nutrition-tracker/telegram-bot-token`
-    -   `/dev/nutrition-tracker/gemini-api-key`
-    -   `/dev/nutrition-tracker/fdc-api-key`
-    -   `/dev/nutrition-tracker/google-sheets-credentials`
-    -   `/dev/nutrition-tracker/spreadsheet-id`
-    -   `/dev/nutrition-tracker/telegram-chat-id`
 
 #### 2.3. Create the Lambda Layer ZIP File  (Run from Project Root)
 
