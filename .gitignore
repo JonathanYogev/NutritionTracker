@@ -205,3 +205,22 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Terraform generated files
+lambda_layer/dependencies_layer.zip
+
+# Ignore installed python dependencies, but keep common module
+lambda_layer/python/*
+!lambda_layer/python/common/
+!lambda_layer/python/common/*
+
+# Terraform specific ignores
+.terraform/
+*.tfplan
+*.tfstate
+*.tfstate.backup
+crash.log
+*.tfvars
+# *.tfvars.json # Uncomment if your tfvars.json file contains sensitive data
+terraform/*.zip
+.terraform.lock.hcl
