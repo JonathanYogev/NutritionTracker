@@ -51,6 +51,8 @@ This project is deployed using Terraform. For detailed, step-by-step instruction
 
 ## 🛠️ Tech Stack
 
+For a detailed explanation of the project's architecture, please see the [Architecture Document](./docs/architecture.md).
+
 ![Python](https://img.shields.io/badge/Python-3.12-blue?style=for-the-badge&logo=python)
 ![AWS](https://img.shields.io/badge/AWS-Serverless-orange?style=for-the-badge&logo=amazon-aws)
 ![Terraform](https://img.shields.io/badge/Terraform-Infrastructure-purple?style=for-the-badge&logo=terraform)
