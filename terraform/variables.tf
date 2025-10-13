@@ -21,3 +21,9 @@ variable "reporter_schedule_cron" {
   type        = string
   default     = "cron(30 19 * * ? *)"
 }
+
+variable "python_runtime" {
+  description = "The Python runtime version for Lambda functions and layers."
+  type        = string
+  default     = "python3.12"
+}

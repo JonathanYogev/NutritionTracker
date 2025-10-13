@@ -207,7 +207,7 @@ resource "aws_iam_role_policy_attachment" "reporter_lambda_basic_execution" {
 resource "aws_lambda_layer_version" "dependencies_layer" {
   layer_name          = "${var.env}-nutrition-tracker-dependencies"
   filename            = var.dependencies_layer_zip_path
-  compatible_runtimes = ["python3.12"]
+  compatible_runtimes = [var.python_runtime]
 }
 
 # Lambda Functions
@@ -222,7 +222,7 @@ resource "aws_lambda_function" "client_lambda" {
   function_name    = "${var.env}-nutrition-tracker-client"
   role             = aws_iam_role.client_lambda_role.arn
   handler          = "client_lambda.lambda_handler"
-  runtime          = "python3.12"
+  runtime          = var.python_runtime
   filename         = data.archive_file.client_lambda.output_path
   source_code_hash = data.archive_file.client_lambda.output_base64sha256
   timeout          = 10
@@ -248,7 +248,7 @@ resource "aws_lambda_function" "processor_lambda" {
   function_name    = "${var.env}-nutrition-tracker-processor"
   role             = aws_iam_role.processor_lambda_role.arn
   handler          = "processor_lambda.lambda_handler"
-  runtime          = "python3.12"
+  runtime          = var.python_runtime
   filename         = data.archive_file.processor_lambda.output_path
   source_code_hash = data.archive_file.processor_lambda.output_base64sha256
   timeout          = 300
@@ -283,7 +283,7 @@ resource "aws_lambda_function" "reporter_lambda" {
   function_name    = "${var.env}-nutrition-tracker-reporter"
   role             = aws_iam_role.reporter_lambda_role.arn
   handler          = "reporter_lambda.lambda_handler"
-  runtime          = "python3.12"
+  runtime          = var.python_runtime
   filename         = data.archive_file.reporter_lambda.output_path
   source_code_hash = data.archive_file.reporter_lambda.output_base64sha256
   timeout          = 30
