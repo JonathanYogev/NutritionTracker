@@ -91,7 +91,7 @@ def get_nutrition_data(food_item, fdc_api_key):
 
     options_string = "\n".join(options)
 
-    prompt = f"""You are a nutrition expert. The user ate '{food_item}'. I found the following items in the USDA database. Which one is the best and most accurate match? Please respond with only the number of the best option.\n\n{options_string}"""
+    prompt = f"""You are a nutrition expert. The user ate '{food_item}'. I found the following items in the USDA database. Which one is the best and most accurate match? Answer based on logic, not just words. Please respond with only the number of the best option.\n\n{options_string}"""
 
     picker_model = genai.GenerativeModel(GEMINI_PICKER_MODEL_NAME)
     picker_response = picker_model.generate_content(prompt)
