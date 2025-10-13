@@ -19,6 +19,20 @@ This project is a serverless, AI-powered nutrition tracker that allows users to 
 | **Serverless Architecture**   | Built on a serverless AWS stack (Lambda, SQS, API Gateway, DynamoDB) for high reliability and scalability.                                                            |
 | **Error Handling**            | Employs an SQS Dead-Letter Queue (DLQ) to capture and isolate failed messages for debugging, with a CloudWatch Alarm for immediate notification of processing failures. |
 
+## Usage
+
+1.  Open a chat with your configured Telegram bot.
+2.  Send a picture of your meal.
+3.  Receive a confirmation that your meal is being processed.
+4.  A few moments later, receive a message with the nutritional breakdown for the meal.
+5.  At the end of each day, receive a daily summary report.
+6.  All meals and daily summaries are logged in your personal Google Sheet for historical tracking.
+
+<p align="center">
+  <img src="./docs/images/telegram_screenshot.png" alt="Telegram Chat Screenshot" width="200"/>
+  <img src="./docs/images/telegram_summary_screenshot.png" alt="Telegram Daily Summary Screenshot" width="200"/>
+</p>
+
 ## 🚀 Getting Started
 
 ### Prerequisites
