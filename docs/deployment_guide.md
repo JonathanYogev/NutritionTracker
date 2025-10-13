@@ -55,6 +55,12 @@ From the project root, run the following AWS CLI commands to store your secrets.
 # For your Telegram Bot Token
 aws ssm put-parameter --name "/dev/nutrition-tracker/telegram-bot-token" --value "YOUR_TELEGRAM_BOT_TOKEN" --type "SecureString" --region <YOUR_REGION>
 
+# For the Telegram Webhook Secret Token 
+# choose a strong string (1-256 characters. Only characters A-Z, a-z, 0-9, _ and - are allowed.)
+# This token is used to verify that incoming webhook requests are genuinely from Telegram,
+# preventing unauthorized access to your Lambda function.
+aws ssm put-parameter --name "/dev/nutrition-tracker/telegram-secret-token" --value "YOUR_SECRET_TOKEN" --type "SecureString" --region <YOUR_REGION>
+
 # For your Gemini API Key
 aws ssm put-parameter --name "/dev/nutrition-tracker/gemini-api-key" --value "YOUR_GEMINI_API_KEY" --type "SecureString" --region <YOUR_REGION>
 
@@ -110,7 +116,7 @@ cd ..
 After the deployment succeeds, Terraform will output the `api_gateway_url`. Use this URL to set your Telegram webhook.
 
 ```bash
-curl -F "url=<api_gateway_url>" https://api.telegram.org/bot<YOUR_TELEGRAM_BOT_TOKEN>/setWebhook
+curl -F "url=<api_gateway_url>/webhook" -F "secret_token=<YOUR_SECRET_TOKEN>" https://api.telegram.org/bot<YOUR_TELEGRAM_BOT_TOKEN>/setWebhook
 ```
 
 ### Step 4: Destroy Resources

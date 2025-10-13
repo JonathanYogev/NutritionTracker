@@ -41,7 +41,8 @@ data "aws_iam_policy_document" "client_lambda_policy" {
     effect  = "Allow"
     actions = ["ssm:GetParameter"]
     resources = [
-      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-bot-token"
+      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-bot-token",
+      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-secret-token"
     ]
   }
 
@@ -220,6 +221,7 @@ resource "aws_lambda_function" "client_lambda" {
   environment {
     variables = {
       TELEGRAM_BOT_TOKEN_SSM_PATH = "/${var.env}/nutrition-tracker/telegram-bot-token"
+      TELEGRAM_SECRET_TOKEN_SSM_PATH = "/${var.env}/nutrition-tracker/telegram-secret-token"
       SQS_QUEUE_URL               = aws_sqs_queue.nutrition_tracker_queue.id
     }
   }
