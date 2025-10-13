@@ -15,3 +15,9 @@ variable "env" {
   type        = string
   default     = "dev"
 }
+
+variable "reporter_schedule_cron" {
+  description = "Cron expression for the daily nutrition report (UTC). E.g., 'cron(30 19 * * ? *)' for 19:30 UTC."
+  type        = string
+  default     = "cron(30 19 * * ? *)"
+}

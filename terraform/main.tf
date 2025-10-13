@@ -295,7 +295,7 @@ resource "aws_lambda_function" "reporter_lambda" {
 # EventBridge Rule for Reporter Lambda
 resource "aws_cloudwatch_event_rule" "reporter_rule" {
   name                = "${var.env}-daily-nutrition-report-trigger"
-  schedule_expression = "cron(30 19 * * ? *)"
+  schedule_expression = var.reporter_schedule_cron
 }
 
 resource "aws_cloudwatch_event_target" "reporter_target" {
