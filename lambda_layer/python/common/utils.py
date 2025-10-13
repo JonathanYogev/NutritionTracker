@@ -3,7 +3,6 @@ import logging
 import boto3
 import requests
 
-# Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 

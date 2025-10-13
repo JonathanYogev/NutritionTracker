@@ -15,15 +15,12 @@ import time
 from botocore.exceptions import ClientError
 from common.utils import get_secret, send_telegram_message
 
-# Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# Initialize DynamoDB client for idempotency
 dynamodb = boto3.resource('dynamodb')
 
-
-# Externalize model names for a flexible, two-model strategy
+# Use two different models for vision and picking
 GEMINI_VISION_MODEL_NAME = os.environ.get(
     'GEMINI_VISION_MODEL_NAME', 'gemini-2.5-pro')
 GEMINI_PICKER_MODEL_NAME = os.environ.get(
@@ -66,7 +63,6 @@ def get_nutrition_data(food_item, fdc_api_key):
 
     for data_type in data_types:
         try:
-            # URL encode the data_type string to handle spaces, e.g., "Survey (FNDDS)"
             encoded_data_type = requests.utils.quote(data_type)
             search_url = f"https://api.nal.usda.gov/fdc/v1/foods/search?query={food_item}&dataType={encoded_data_type}&api_key={fdc_api_key}&pageSize=10"
 
@@ -82,23 +78,19 @@ def get_nutrition_data(food_item, fdc_api_key):
         except requests.exceptions.RequestException as e:
             logger.warning(
                 f"API call to FDC failed for dataType {data_type}. Error: {e}")
-            # Continue to the next data type even if one fails
             continue
 
     if not all_foods:
         return None
 
-    # The rest of the function now operates on the combined list of foods
     search_data = {'foods': all_foods}
 
-    # Step 2: Format the options for Gemini
     options = []
     for i, food in enumerate(search_data['foods']):
         options.append(f"{i+1}. {food.get('description')}")
 
     options_string = "\n".join(options)
 
-    # Step 3: Ask Gemini to pick the best match
     prompt = f"""You are a nutrition expert. The user ate '{food_item}'. I found the following items in the USDA database. Which one is the best and most accurate match? Please respond with only the number of the best option.\n\n{options_string}"""
 
     picker_model = genai.GenerativeModel(GEMINI_PICKER_MODEL_NAME)
@@ -109,8 +101,7 @@ def get_nutrition_data(food_item, fdc_api_key):
         best_option_number = int(picker_response.text.strip())
         selected_food = search_data['foods'][best_option_number - 1]
     except (ValueError, IndexError):
-        # If Gemini's response is not a valid number, or out of range,
-        # fallback to the first result.
+        # Fallback to the first result if Gemini's response is invalid
         logger.warning(
             f"Gemini picker returned invalid response: '{picker_response.text.strip()}'. Defaulting to option 1.")
         best_option_number = 1
@@ -119,7 +110,6 @@ def get_nutrition_data(food_item, fdc_api_key):
     logger.info(
         f"Gemini picked option {best_option_number}, which is '{selected_food.get('description')}' (FDC ID: {selected_food.get('fdcId')}).")
 
-    # Step 4: Return the selected food data from the search result
     return {'foods': [selected_food]}
 
 
@@ -161,7 +151,6 @@ def _check_and_update_idempotency(idempotency_key, table):
                 f"Request {idempotency_key} is already processing. Retrying.")
             return True
 
-        # New request, mark as PROCESSING
         ttl_timestamp = int(time.time()) + 86400  # 24-hour TTL
         table.put_item(
             Item={'idempotency_key': idempotency_key,
@@ -282,8 +271,7 @@ def process_meal_from_message(message_body, configs):
     food_items = _get_food_items_from_image(
         image_bytes, chat_id, configs['telegram_bot_token'])
     if food_items is None:
-        # User has been notified, and we should stop processing.
-        # Mark as complete to prevent retries for non-food images.
+        # Mark as complete to prevent retries for non-food images
         configs['table'].update_item(
             Key={'idempotency_key': idempotency_key},
             UpdateExpression="set #status = :s",
@@ -314,7 +302,6 @@ def process_meal_from_message(message_body, configs):
     send_telegram_message(chat_id, result_message,
                           configs['telegram_bot_token'])
 
-    # Mark as COMPLETED
     configs['table'].update_item(
         Key={'idempotency_key': idempotency_key},
         UpdateExpression="set #status = :s",
@@ -326,7 +313,7 @@ def process_meal_from_message(message_body, configs):
 
 def lambda_handler(event, context):
     """Lambda function entry point for processing SQS messages."""
-    # --- Performance Refactoring: Setup once per invocation ---
+    # Setup once per invocation for performance
     try:
         table_name = os.environ['DYNAMODB_TABLE_NAME']
         configs = {
@@ -341,7 +328,7 @@ def lambda_handler(event, context):
     except Exception as e:
         logger.critical(
             f"Failed to load initial configuration. Aborting invocation. Error: {e}", exc_info=True)
-        # Re-raise to signal a catastrophic failure for this invocation
+        # Re-raise for catastrophic failure
         raise
 
     for record in event['Records']:
@@ -357,11 +344,10 @@ def lambda_handler(event, context):
                     send_telegram_message(
                         message_body['chat_id'],
                         "Sorry, there was an error processing your meal details.",
-                        # Use loaded config if available
                         configs.get('telegram_bot_token')
                     )
             except Exception as notify_e:
                 logger.error(
                     f"Failed to notify user about the processing error. Error: {notify_e}")
-            # Re-raise the exception to ensure the message is redriven to the DLQ
+            # Re-raise to redrive to DLQ
             raise
