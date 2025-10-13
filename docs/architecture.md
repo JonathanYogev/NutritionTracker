@@ -1,6 +1,5 @@
 # Architecture Overview: Nutrition Tracker
 
-This document provides a high-level overview of the Nutrition Tracker application's architecture, detailing its core components, their interactions, and the overall data flow.
 
 ## 1. High-Level Overview
 
