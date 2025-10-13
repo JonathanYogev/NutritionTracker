@@ -4,11 +4,9 @@ import logging
 import boto3
 from common.utils import get_secret, send_telegram_message
 
-# Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# Initialize Boto3 clients
 sqs = boto3.client('sqs')
 
 
@@ -20,7 +18,7 @@ def lambda_handler(event, context):
     try:
         logger.info(f"Received event: {json.dumps(event)}")
 
-        # Fetch secrets and config within the handler for security and freshness
+        # Fetch secrets and config
         telegram_bot_token = get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH')
         sqs_queue_url = os.environ.get('SQS_QUEUE_URL')
 
@@ -47,18 +45,15 @@ def lambda_handler(event, context):
         # Create a unique key to ensure this message is processed only once
         idempotency_key = f"{chat_id}-{message_id}"
 
-        # Send "processing" message to the user
         send_telegram_message(
             chat_id, "Processing your meal...", telegram_bot_token)
 
-        # Prepare message for SQS
         sqs_message = {
             'chat_id': chat_id,
             'file_id': file_id,
             'idempotency_key': idempotency_key
         }
 
-        # Send message to SQS
         sqs.send_message(
             QueueUrl=sqs_queue_url,
             MessageBody=json.dumps(sqs_message)
@@ -69,7 +64,6 @@ def lambda_handler(event, context):
 
     except Exception as e:
         logger.error(f"Error: {e}", exc_info=True)
-        # Try to inform the user about the error
         try:
             telegram_bot_token = get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH')
             body = json.loads(event.get('body', '{}'))

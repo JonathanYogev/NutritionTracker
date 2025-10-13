@@ -8,7 +8,6 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from common.utils import get_secret, send_telegram_message
 
-# Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -54,7 +53,7 @@ def lambda_handler(event, context):
     - Appends the daily summary to another sheet.
     - Sends the summary to a specified Telegram chat.
     """
-    # Fetch secrets and config within the handler for security and freshness
+    # Fetch secrets and config
     telegram_bot_token = get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH')
     google_sheets_credentials = get_secret(
         'GOOGLE_SHEETS_CREDENTIALS_SSM_PATH')
@@ -70,7 +69,6 @@ def lambda_handler(event, context):
         service = get_sheets_service(google_sheets_credentials)
         sheet = service.spreadsheets()
 
-        # 1. Read data from the meals sheet
         read_range = f"{meals_sheet_name}!A:F"
         result = sheet.values().get(spreadsheetId=spreadsheet_id,
                                     range=read_range).execute()
@@ -84,7 +82,6 @@ def lambda_handler(event, context):
                 telegram_chat_id, "No meals were logged today. No report generated.", telegram_bot_token)
             return {'statusCode': 200, 'body': 'Sheet was empty or had only a header.'}
 
-        # 2. Calculate daily totals
         today_str = datetime.now(
             ZoneInfo('Asia/Jerusalem')).strftime("%Y-%m-%d")
         logger.info(f"Calculating totals for date: {today_str}")
@@ -95,7 +92,6 @@ def lambda_handler(event, context):
         logger.info(
             f"Calculated totals: Cals={total_calories}, Prot={total_protein}, Carbs={total_carbs}, Fat={total_fat}")
 
-        # 3. Write summary to the daily reports sheet
         summary_data = [
             today_str,
             round(total_calories, 2),
@@ -113,7 +109,6 @@ def lambda_handler(event, context):
         ).execute()
         logger.info(f"Appended daily summary to '{reports_sheet_name}' sheet.")
 
-        # 4. Send summary to Telegram
         report_message = f"📊 Daily Nutrition Summary for {today_str}:\n\n"
         report_message += f"🔥 Total Calories: {round(total_calories, 2)}\n"
         report_message += f"💪 Total Protein: {round(total_protein, 2)}g\n"
