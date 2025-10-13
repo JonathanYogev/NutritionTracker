@@ -35,26 +35,6 @@ resource "aws_dynamodb_table" "nutrition_tracker_messages" {
 
 # IAM Roles and Policies
 
-data "aws_iam_policy_document" "client_lambda_policy" {
-  statement {
-    sid     = "AllowSSMParameterAccess"
-    effect  = "Allow"
-    actions = ["ssm:GetParameter"]
-    resources = [
-      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-bot-token",
-      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-secret-token"
-    ]
-  }
-
-  statement {
-    sid     = "AllowSQSQueueAccess"
-    effect  = "Allow"
-    actions = ["sqs:SendMessage"]
-    resources = [
-      aws_sqs_queue.nutrition_tracker_queue.arn
-    ]
-  }
-}
 
 resource "aws_iam_role" "client_lambda_role" {
   name = "${var.env}-nutrition-tracker-client-lambda-role"
@@ -75,7 +55,28 @@ resource "aws_iam_role" "client_lambda_role" {
 resource "aws_iam_role_policy" "client_lambda_policy" {
   name   = "${var.env}-nutrition-tracker-client-lambda-policy"
   role   = aws_iam_role.client_lambda_role.id
-  policy = data.aws_iam_policy_document.client_lambda_policy.json
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid     = "AllowSSMParameterAccess"
+        Effect  = "Allow"
+        Action  = ["ssm:GetParameter"]
+        Resource = [
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-bot-token",
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-secret-token"
+        ]
+      },
+      {
+        Sid     = "AllowSQSQueueAccess"
+        Effect  = "Allow"
+        Action  = ["sqs:SendMessage"]
+        Resource = [
+          aws_sqs_queue.nutrition_tracker_queue.arn
+        ]
+      }
+    ]
+  })
 }
 
 resource "aws_iam_role_policy_attachment" "client_lambda_basic_execution" {
@@ -83,46 +84,6 @@ resource "aws_iam_role_policy_attachment" "client_lambda_basic_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-data "aws_iam_policy_document" "processor_lambda_policy" {
-  statement {
-    sid     = "AllowSSMParameterAccess"
-    effect  = "Allow"
-    actions = ["ssm:GetParameter"]
-    resources = [
-      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-bot-token",
-      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/gemini-api-key",
-      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/fdc-api-key",
-      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/google-sheets-credentials",
-      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/spreadsheet-id"
-    ]
-  }
-
-  statement {
-    sid    = "AllowSQSQueueAccess"
-    effect = "Allow"
-    actions = [
-      "sqs:ReceiveMessage",
-      "sqs:DeleteMessage",
-      "sqs:GetQueueAttributes"
-    ]
-    resources = [
-      aws_sqs_queue.nutrition_tracker_queue.arn
-    ]
-  }
-
-  statement {
-    sid    = "AllowDynamoDBIdempotencyTableAccess"
-    effect = "Allow"
-    actions = [
-      "dynamodb:PutItem",
-      "dynamodb:GetItem",
-      "dynamodb:UpdateItem"
-    ]
-    resources = [
-      aws_dynamodb_table.nutrition_tracker_messages.arn
-    ]
-  }
-}
 
 resource "aws_iam_role" "processor_lambda_role" {
   name = "${var.env}-nutrition-tracker-processor-lambda-role"
@@ -143,7 +104,47 @@ resource "aws_iam_role" "processor_lambda_role" {
 resource "aws_iam_role_policy" "processor_lambda_policy" {
   name   = "${var.env}-nutrition-tracker-processor-lambda-policy"
   role   = aws_iam_role.processor_lambda_role.id
-  policy = data.aws_iam_policy_document.processor_lambda_policy.json
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid     = "AllowSSMParameterAccess"
+        Effect  = "Allow"
+        Action  = ["ssm:GetParameter"]
+        Resource = [
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-bot-token",
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/gemini-api-key",
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/fdc-api-key",
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/google-sheets-credentials",
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/spreadsheet-id"
+        ]
+      },
+      {
+        Sid    = "AllowSQSQueueAccess"
+        Effect = "Allow"
+        Action = [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes"
+        ]
+        Resource = [
+          aws_sqs_queue.nutrition_tracker_queue.arn
+        ]
+      },
+      {
+        Sid    = "AllowDynamoDBIdempotencyTableAccess"
+        Effect = "Allow"
+        Action = [
+          "dynamodb:PutItem",
+          "dynamodb:GetItem",
+          "dynamodb:UpdateItem"
+        ]
+        Resource = [
+          aws_dynamodb_table.nutrition_tracker_messages.arn
+        ]
+      }
+    ]
+  })
 }
 
 resource "aws_iam_role_policy_attachment" "processor_lambda_basic_execution" {
@@ -151,19 +152,6 @@ resource "aws_iam_role_policy_attachment" "processor_lambda_basic_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-data "aws_iam_policy_document" "reporter_lambda_policy" {
-  statement {
-    sid     = "AllowSSMParameterAccess"
-    effect  = "Allow"
-    actions = ["ssm:GetParameter"]
-    resources = [
-      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-bot-token",
-      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/google-sheets-credentials",
-      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/spreadsheet-id",
-      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-chat-id"
-    ]
-  }
-}
 
 resource "aws_iam_role" "reporter_lambda_role" {
   name = "${var.env}-nutrition-tracker-reporter-lambda-role"
@@ -184,7 +172,22 @@ resource "aws_iam_role" "reporter_lambda_role" {
 resource "aws_iam_role_policy" "reporter_lambda_policy" {
   name   = "${var.env}-nutrition-tracker-reporter-lambda-policy"
   role   = aws_iam_role.reporter_lambda_role.id
-  policy = data.aws_iam_policy_document.reporter_lambda_policy.json
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid     = "AllowSSMParameterAccess"
+        Effect  = "Allow"
+        Action  = ["ssm:GetParameter"]
+        Resource = [
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-bot-token",
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/google-sheets-credentials",
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/spreadsheet-id",
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-chat-id"
+        ]
+      }
+    ]
+  })
 }
 
 resource "aws_iam_role_policy_attachment" "reporter_lambda_basic_execution" {
