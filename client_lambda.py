@@ -16,6 +16,15 @@ def lambda_handler(event, context):
     and sends a confirmation to the user.
     """
     try:
+        # Validate the secret token from Telegram to ensure authenticity
+        secret_token = get_secret('TELEGRAM_SECRET_TOKEN_SSM_PATH')
+        received_token = event.get('headers', {}).get('X-Telegram-Bot-Api-Secret-Token')
+
+
+        if received_token != secret_token:
+            logger.warning("Invalid or missing secret token. Aborting.")
+            return {'statusCode': 403, 'body': json.dumps("Forbidden")}
+
         logger.info(f"Received event: {json.dumps(event)}")
 
         # Fetch secrets and config
