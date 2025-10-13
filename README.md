@@ -47,7 +47,7 @@ Before you begin, ensure you have the following:
 
 ### Deployment
 
-This project is deployed using Terraform. For detailed, step-by-step instructions, please refer to the **[Deployment Guide](./docs/deployment_guide)**.
+This project is deployed using Terraform. For detailed, step-by-step instructions, please refer to the **[Deployment Guide](./docs/deployment_guide.md)**.
 
 ## 🛠️ Tech Stack
 
