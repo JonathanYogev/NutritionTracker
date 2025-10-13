@@ -1,6 +1,28 @@
 # Terraform Configuration for Nutrition Tracker Application
 data "aws_caller_identity" "current" {}
 
+locals {
+  client_lambda_ssm_params = [
+    "/${var.env}/nutrition-tracker/telegram-bot-token",
+    "/${var.env}/nutrition-tracker/telegram-secret-token"
+  ]
+
+  processor_lambda_ssm_params = [
+    "/${var.env}/nutrition-tracker/telegram-bot-token",
+    "/${var.env}/nutrition-tracker/gemini-api-key",
+    "/${var.env}/nutrition-tracker/fdc-api-key",
+    "/${var.env}/nutrition-tracker/google-sheets-credentials",
+    "/${var.env}/nutrition-tracker/spreadsheet-id"
+  ]
+
+  reporter_lambda_ssm_params = [
+    "/${var.env}/nutrition-tracker/telegram-bot-token",
+    "/${var.env}/nutrition-tracker/google-sheets-credentials",
+    "/${var.env}/nutrition-tracker/spreadsheet-id",
+    "/${var.env}/nutrition-tracker/telegram-chat-id"
+  ]
+}
+
 # SQS Dead-Letter Queue
 resource "aws_sqs_queue" "nutrition_tracker_dlq" {
   name = "${var.env}-nutrition-tracker-dlq"
@@ -53,24 +75,21 @@ resource "aws_iam_role" "client_lambda_role" {
 }
 
 resource "aws_iam_role_policy" "client_lambda_policy" {
-  name   = "${var.env}-nutrition-tracker-client-lambda-policy"
-  role   = aws_iam_role.client_lambda_role.id
+  name = "${var.env}-nutrition-tracker-client-lambda-policy"
+  role = aws_iam_role.client_lambda_role.id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Sid     = "AllowSSMParameterAccess"
-        Effect  = "Allow"
-        Action  = ["ssm:GetParameter"]
-        Resource = [
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-bot-token",
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-secret-token"
-        ]
+        Sid      = "AllowSSMParameterAccess"
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter"]
+        Resource = [for p in local.client_lambda_ssm_params : "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${p}"]
       },
       {
-        Sid     = "AllowSQSQueueAccess"
-        Effect  = "Allow"
-        Action  = ["sqs:SendMessage"]
+        Sid    = "AllowSQSQueueAccess"
+        Effect = "Allow"
+        Action = ["sqs:SendMessage"]
         Resource = [
           aws_sqs_queue.nutrition_tracker_queue.arn
         ]
@@ -102,22 +121,16 @@ resource "aws_iam_role" "processor_lambda_role" {
 }
 
 resource "aws_iam_role_policy" "processor_lambda_policy" {
-  name   = "${var.env}-nutrition-tracker-processor-lambda-policy"
-  role   = aws_iam_role.processor_lambda_role.id
+  name = "${var.env}-nutrition-tracker-processor-lambda-policy"
+  role = aws_iam_role.processor_lambda_role.id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Sid     = "AllowSSMParameterAccess"
-        Effect  = "Allow"
-        Action  = ["ssm:GetParameter"]
-        Resource = [
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-bot-token",
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/gemini-api-key",
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/fdc-api-key",
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/google-sheets-credentials",
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/spreadsheet-id"
-        ]
+        Sid      = "AllowSSMParameterAccess"
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter"]
+        Resource = [for p in local.processor_lambda_ssm_params : "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${p}"]
       },
       {
         Sid    = "AllowSQSQueueAccess"
@@ -170,21 +183,16 @@ resource "aws_iam_role" "reporter_lambda_role" {
 }
 
 resource "aws_iam_role_policy" "reporter_lambda_policy" {
-  name   = "${var.env}-nutrition-tracker-reporter-lambda-policy"
-  role   = aws_iam_role.reporter_lambda_role.id
+  name = "${var.env}-nutrition-tracker-reporter-lambda-policy"
+  role = aws_iam_role.reporter_lambda_role.id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Sid     = "AllowSSMParameterAccess"
-        Effect  = "Allow"
-        Action  = ["ssm:GetParameter"]
-        Resource = [
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-bot-token",
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/google-sheets-credentials",
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/spreadsheet-id",
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.env}/nutrition-tracker/telegram-chat-id"
-        ]
+        Sid      = "AllowSSMParameterAccess"
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter"]
+        Resource = [for p in local.reporter_lambda_ssm_params : "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${p}"]
       }
     ]
   })
@@ -223,9 +231,9 @@ resource "aws_lambda_function" "client_lambda" {
 
   environment {
     variables = {
-      TELEGRAM_BOT_TOKEN_SSM_PATH = "/${var.env}/nutrition-tracker/telegram-bot-token"
+      TELEGRAM_BOT_TOKEN_SSM_PATH    = "/${var.env}/nutrition-tracker/telegram-bot-token"
       TELEGRAM_SECRET_TOKEN_SSM_PATH = "/${var.env}/nutrition-tracker/telegram-secret-token"
-      SQS_QUEUE_URL               = aws_sqs_queue.nutrition_tracker_queue.id
+      SQS_QUEUE_URL                  = aws_sqs_queue.nutrition_tracker_queue.id
     }
   }
 }
