@@ -27,3 +27,9 @@ variable "python_runtime" {
   type        = string
   default     = "python3.12"
 }
+
+variable "timezone" {
+  description = "The timezone to be used by the processor and reporter lambdas"
+  type        = string
+  default     = "Asia/Jerusalem"
+}
