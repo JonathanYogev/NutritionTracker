@@ -15,3 +15,15 @@ variable "env" {
   type        = string
   default     = "dev"
 }
+
+variable "reporter_schedule_cron" {
+  description = "Cron expression for the daily nutrition report (UTC). E.g., 'cron(30 19 * * ? *)' for 19:30 UTC."
+  type        = string
+  default     = "cron(30 19 * * ? *)"
+}
+
+variable "python_runtime" {
+  description = "The Python runtime version for Lambda functions and layers."
+  type        = string
+  default     = "python3.12"
+}

@@ -104,6 +104,10 @@ cd ..
     ```
     If you change the `env` variable, ensure your SSM parameters use the same prefix (e.g., `/staging/nutrition-tracker/...`).
 
+    You can also customize:
+    *   `reporter_schedule_cron`: The cron expression for the daily nutrition report (e.g., `"cron(0 12 * * ? *)"` for 12:00 UTC).
+    *   `python_runtime`: The Python runtime version for Lambda functions and layers (e.g., `"python3.12"`).
+
 3.  **Initialize and Apply**:
     ```bash
     terraform init
