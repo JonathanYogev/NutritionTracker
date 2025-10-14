@@ -285,7 +285,7 @@ def process_meal_from_message(message_body, configs):
     nutrition_totals = _calculate_meal_nutrition(
         food_items, configs['fdc_api_key'])
 
-    now = datetime.now(ZoneInfo('Asia/Jerusalem')
+    now = datetime.now(ZoneInfo(os.environ['TIMEZONE'])
                        ).strftime("%Y-%m-%d %H:%M:%S")
     sheet_data = [
         now,

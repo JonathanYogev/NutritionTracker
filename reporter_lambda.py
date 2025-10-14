@@ -83,7 +83,7 @@ def lambda_handler(event, context):
             return {'statusCode': 200, 'body': 'Sheet was empty or had only a header.'}
 
         today_str = datetime.now(
-            ZoneInfo('Asia/Jerusalem')).strftime("%Y-%m-%d")
+            ZoneInfo(os.environ['TIMEZONE'])).strftime("%Y-%m-%d")
         logger.info(f"Calculating totals for date: {today_str}")
 
         total_calories, total_protein, total_carbs, total_fat = calculate_daily_totals(

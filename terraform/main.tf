@@ -264,6 +264,7 @@ resource "aws_lambda_function" "processor_lambda" {
       GOOGLE_SHEETS_CREDENTIALS_SSM_PATH = "/${var.env}/nutrition-tracker/google-sheets-credentials"
       SPREADSHEET_ID_SSM_PATH            = "/${var.env}/nutrition-tracker/spreadsheet-id"
       DYNAMODB_TABLE_NAME                = aws_dynamodb_table.nutrition_tracker_messages.name
+      TIMEZONE                           = var.timezone
     }
   }
 }
@@ -296,6 +297,7 @@ resource "aws_lambda_function" "reporter_lambda" {
       GOOGLE_SHEETS_CREDENTIALS_SSM_PATH = "/${var.env}/nutrition-tracker/google-sheets-credentials"
       SPREADSHEET_ID_SSM_PATH            = "/${var.env}/nutrition-tracker/spreadsheet-id"
       TELEGRAM_CHAT_ID_SSM_PATH          = "/${var.env}/nutrition-tracker/telegram-chat-id"
+      TIMEZONE                           = var.timezone
     }
   }
 }

@@ -107,6 +107,7 @@ cd ..
     You can also customize:
     *   `reporter_schedule_cron`: The cron expression for the daily nutrition report (e.g., `"cron(0 12 * * ? *)"` for 12:00 UTC).
     *   `python_runtime`: The Python runtime version for Lambda functions and layers (e.g., `"python3.12"`).
+    *   `timezone`: The timezone used by the processor and reporter lambdas (e.g., `"Asia/Jerusalem"`).
 
 3.  **Initialize and Apply**:
     ```bash
