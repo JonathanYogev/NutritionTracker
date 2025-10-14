@@ -4,19 +4,10 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import boto3
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from common.utils import get_secret, send_telegram_message
+from common.utils import get_secret, send_telegram_message, get_sheets_service
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-
-
-def get_sheets_service(google_sheets_credentials):
-    """Creates and returns a Google Sheets API service object."""
-    creds_json = json.loads(google_sheets_credentials)
-    creds = service_account.Credentials.from_service_account_info(creds_json)
-    return build('sheets', 'v4', credentials=creds)
 
 
 def calculate_daily_totals(sheet_values, today_str):

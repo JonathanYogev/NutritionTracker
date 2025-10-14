@@ -2,6 +2,9 @@ import os
 import logging
 import boto3
 import requests
+import json
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -43,3 +46,10 @@ def send_telegram_message(chat_id, text, bot_token):
         logger.error(
             f"Failed to send message to chat_id {chat_id}. Error: {e}")
         raise e
+
+
+def get_sheets_service(google_sheets_credentials):
+    """Creates and returns a Google Sheets API service object."""
+    creds_json = json.loads(google_sheets_credentials)
+    creds = service_account.Credentials.from_service_account_info(creds_json)
+    return build('sheets', 'v4', credentials=creds)
