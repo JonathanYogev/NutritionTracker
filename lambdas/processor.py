@@ -20,7 +20,7 @@ logger.setLevel(logging.INFO)
 
 dynamodb = boto3.resource('dynamodb')
 
-# Use two different models for vision and picking
+
 GEMINI_VISION_MODEL_NAME = os.environ.get(
     'GEMINI_VISION_MODEL_NAME', 'gemini-2.5-pro')
 GEMINI_PICKER_MODEL_NAME = os.environ.get(
@@ -57,7 +57,7 @@ def get_nutrition_data(food_item, fdc_api_key):
     Gets nutrition data from FoodData Central by making separate calls for each data type
     and letting Gemini pick the best match from the combined results.
     """
-    data_types = ["SR Legacy", "Foundation", "Survey (FNDDS)"]
+    data_types = ["SR Legacy", "Foundation", "Survey (FNDDS)", "Branded"]
     all_foods = []
     seen_fdc_ids = set()
 
