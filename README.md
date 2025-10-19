@@ -1,6 +1,6 @@
 # AI-Powered Nutrition Tracker via Telegram
 
-This project is a serverless, AI-powered nutrition tracker that allows users to log their meals simply by sending a picture to a Telegram bot. The system analyzes the image, calculates nutritional information, and logs the data to a personal Google Sheet.
+The project is a serverless, AI-powered nutrition tracker that allows users to log their meals simply by sending a picture to a Telegram bot. The system analyzes the image, calculates nutritional information, and logs the data to a personal Google Sheet.
 
 <p align="center">
   <img src="./docs/images/architecture_diagram.png" alt="AI Nutrition Tracker Architecture Diagram" width="800"/>
@@ -31,6 +31,7 @@ This project is a serverless, AI-powered nutrition tracker that allows users to 
 <p align="center">
   <img src="./docs/images/telegram_screenshot.png" alt="Telegram Chat Screenshot" width="200"/>
   <img src="./docs/images/telegram_summary_screenshot.png" alt="Telegram Daily Summary Screenshot" width="200"/>
+  <img src="./docs/images/sheetExample.png" alt="Telegram Daily Summary Screenshot" width="500"/>
 </p>
 
 ## 🚀 Getting Started
@@ -47,7 +48,7 @@ Before you begin, ensure you have the following:
 
 ### Deployment
 
-This project is deployed using Terraform. For detailed, step-by-step instructions, please refer to the **[Deployment Guide](./docs/deployment_guide.md)**.
+The project is deployed using Terraform. For detailed, step-by-step instructions, please refer to the **[Deployment Guide](./docs/deployment_guide.md)**.
 
 ## 🛠️ Tech Stack
 
@@ -60,9 +61,9 @@ For a detailed explanation of the project's architecture, please see the [Archit
 ![Google Sheets](https://img.shields.io/badge/Google%20Sheets-Logging-green?style=for-the-badge&logo=google-sheets)
 ![Telegram](https://img.shields.io/badge/Telegram-Bot-blue?style=for-the-badge&logo=telegram)
 
-## 💰 Cost
+## 💰 Costs
 
-This project is designed to be completely free to operate for typical personal use, leveraging the generous free tiers offered by AWS and the free usage policies of integrated third-party services. Below is a breakdown of the main components and their cost implications:
+The project is designed to be **completely free** to operate for typical personal use, leveraging the generous free tiers offered by AWS and the free usage policies of integrated third-party services. Below is a breakdown of the main components and their cost implications:
 
 *   **AWS Lambda:** 1M free requests per month and 400,000 GB-seconds of compute time per month.
 *   **AWS API Gateway (HTTP API):** 1M free requests per month.

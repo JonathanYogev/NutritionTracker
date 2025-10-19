@@ -11,10 +11,10 @@ The Nutrition Tracker is a serverless application designed to help users log the
 
 *   **AWS API Gateway (HTTP API):** Serves as the entry point for Telegram webhook requests, forwarding them to the `client`.
 *   **AWS Lambda:** The compute service hosting the three main functions: `client`, `processor`, and `reporter`.
-*   **Amazon SQS (Simple Queue Service):** Acts as a buffer between the `client_lambda` and `processor_lambda`, ensuring reliable message delivery and decoupling. Includes a Dead-Letter Queue (DLQ) for failed messages.
-*   **Amazon DynamoDB:** Used by the `processor_lambda` to store idempotency keys, preventing duplicate processing of Telegram messages.
+*   **Amazon SQS (Simple Queue Service):** Acts as a buffer between the `client` and `processor`, ensuring reliable message delivery and decoupling. Includes a Dead-Letter Queue (DLQ) for failed messages.
+*   **Amazon DynamoDB:** Used by the `processor` to store idempotency keys, preventing duplicate processing of Telegram messages.
 *   **AWS Systems Manager (SSM) Parameter Store:** Securely stores sensitive configuration parameters and API keys (e.g., Telegram bot token, Gemini API key, Google Sheets credentials).
-*   **Amazon CloudWatch Events (EventBridge):** Schedules the `reporter_lambda` to run daily for generating reports.
+*   **Amazon CloudWatch Events (EventBridge):** Schedules the `reporter` to run daily for generating reports.
 
 ### 2.2 Lambda Functions
 
