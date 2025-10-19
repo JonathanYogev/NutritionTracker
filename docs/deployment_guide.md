@@ -13,7 +13,7 @@ Before you begin, ensure you have the following:
     - A **Google Service Account** with credentials (JSON file) authorized to access the Google Sheets API.
 - **FoodData Central API Key**: An API key from the [U.S. Department of Agriculture's FoodData Central](https://fdc.nal.usda.gov/api-key-signup.html).
 - **Personal Telegram Chat ID**: Your personal chat ID to receive daily reports. You can get this by messaging `@userinfobot` on Telegram.
-- [Terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli) v1.0 or later installed.
+- [Terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli) v1.0.0 or later installed.
 - [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-install.html) installed and configured.
 - A tool to create zip files (e.g., `zip` command-line utility).
 
@@ -102,12 +102,12 @@ cd ..
     ```bash
     cp terraform.tfvars.example terraform.tfvars
     ```
-    If you change the `env` variable, ensure your SSM parameters use the same prefix (e.g., `/staging/nutrition-tracker/...`).
+    If you change the `env` variable, ensure your SSM parameters use the same prefix (e.g., `/staging/nutrition-tracker/...`) and in the same desired region.
 
     You can also customize:
-    *   `reporter_schedule_cron`: The cron expression for the daily nutrition report (e.g., `"cron(0 12 * * ? *)"` for 12:00 UTC).
-    *   `python_runtime`: The Python runtime version for Lambda functions and layers (e.g., `"python3.12"`).
-    *   `timezone`: The timezone used by the processor and reporter lambdas (e.g., `"Asia/Jerusalem"`).
+    *   `reporter_schedule_cron`: The cron expression for the daily nutrition report (default: `"cron(30 19 * * ? *)"`).
+    *   `python_runtime`: The Python runtime version for Lambda functions and layers (default: `"python3.12"`).
+    *   `timezone`: The timezone used by the processor and reporter lambdas (default: `"Asia/Jerusalem"`).
 
 3.  **Initialize and Apply**:
     ```bash
