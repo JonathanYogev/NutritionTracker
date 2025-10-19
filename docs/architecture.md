@@ -9,8 +9,8 @@ The Nutrition Tracker is a serverless application designed to help users log the
 
 ### 2.1 AWS Services
 
-*   **AWS API Gateway (HTTP API):** Serves as the entry point for Telegram webhook requests, forwarding them to the `client_lambda`.
-*   **AWS Lambda:** The compute service hosting the three main functions: `client_lambda`, `processor_lambda`, and `reporter_lambda`.
+*   **AWS API Gateway (HTTP API):** Serves as the entry point for Telegram webhook requests, forwarding them to the `client`.
+*   **AWS Lambda:** The compute service hosting the three main functions: `client`, `processor`, and `reporter`.
 *   **Amazon SQS (Simple Queue Service):** Acts as a buffer between the `client_lambda` and `processor_lambda`, ensuring reliable message delivery and decoupling. Includes a Dead-Letter Queue (DLQ) for failed messages.
 *   **Amazon DynamoDB:** Used by the `processor_lambda` to store idempotency keys, preventing duplicate processing of Telegram messages.
 *   **AWS Systems Manager (SSM) Parameter Store:** Securely stores sensitive configuration parameters and API keys (e.g., Telegram bot token, Gemini API key, Google Sheets credentials).
@@ -18,11 +18,11 @@ The Nutrition Tracker is a serverless application designed to help users log the
 
 ### 2.2 Lambda Functions
 
-*   **`client_lambda`:**
+*   **`client`:**
     *   **Trigger:** AWS API Gateway (Telegram Webhook - `POST /webhook`).
     *   **Function:** Receives incoming Telegram messages, extracts relevant information, and sends them to the SQS queue for asynchronous processing.
     *   **Dependencies:** Telegram Bot Token (from SSM), SQS Queue URL.
-*   **`processor_lambda`:**
+*   **`processor`:**
     *   **Trigger:** Amazon SQS (receives messages from the queue).
     *   **Function:** Processes the Telegram messages. This involves:
         *   Checking DynamoDB for idempotency to avoid reprocessing.
@@ -30,7 +30,7 @@ The Nutrition Tracker is a serverless application designed to help users log the
         *   Querying the FoodData Central (FDC) API for nutritional information.
         *   Logging meal data to Google Sheets.
     *   **Dependencies:** Telegram Bot Token (from SSM), Gemini API Key (from SSM), FDC API Key (from SSM), Google Sheets Credentials (from SSM), Spreadsheet ID (from SSM), DynamoDB Table Name.
-*   **`reporter_lambda`:**
+*   **`reporter`:**
     *   **Trigger:** Amazon CloudWatch Events (scheduled daily).
     *   **Function:** Generates daily nutrition reports by reading data from Google Sheets and sends the summary to the user via Telegram.
     *   **Dependencies:** Telegram Bot Token (from SSM), Google Sheets Credentials (from SSM), Spreadsheet ID (from SSM), Telegram Chat ID (from SSM).
@@ -43,16 +43,16 @@ The Nutrition Tracker is a serverless application designed to help users log the
 
 1.  **User Interaction:** A user sends a message to the Telegram bot.
 2.  **Telegram Webhook:** Telegram forwards the message to the AWS API Gateway endpoint (`POST /webhook`).
-3.  **API Gateway to `client_lambda`:** API Gateway invokes the `client_lambda` function.
-4.  **`client_lambda` to SQS:** The `client_lambda` extracts the message and sends it to the SQS queue.
-5.  **SQS to `processor_lambda`:** The `processor_lambda` is triggered by messages arriving in the SQS queue.
-6.  **`processor_lambda` Processing:**
+3.  **API Gateway to `client`:** API Gateway invokes the `client` function.
+4.  **`client` to SQS:** The `client` extracts the message and sends it to the SQS queue.
+5.  **SQS to `processor`:** The `processor` is triggered by messages arriving in the SQS queue.
+6.  **`processor` Processing:**
     *   Checks DynamoDB for idempotency.
     *   Calls Gemini API for analysis.
     *   Calls FDC API for food data.
     *   Writes processed meal data to Google Sheets.
-7.  **Scheduled Reporting:** Daily, CloudWatch Events triggers the `reporter_lambda`.
-8.  **`reporter_lambda` Reporting:** The `reporter_lambda` reads data from Google Sheets, compiles a report, and sends it back to the user via Telegram.
+7.  **Scheduled Reporting:** Daily, CloudWatch Events triggers the `reporter`.
+8.  **`reporter` Reporting:** The `reporter` reads data from Google Sheets, compiles a report, and sends it back to the user via Telegram.
 
 ## 4. Key Integrations
 

@@ -214,14 +214,14 @@ resource "aws_lambda_layer_version" "dependencies_layer" {
 
 data "archive_file" "client_lambda" {
   type        = "zip"
-  source_file = "../client_lambda.py"
+  source_file = "../lambdas/client.py"
   output_path = "client_lambda.zip"
 }
 
 resource "aws_lambda_function" "client_lambda" {
   function_name    = "${var.env}-nutrition-tracker-client"
   role             = aws_iam_role.client_lambda_role.arn
-  handler          = "client_lambda.lambda_handler"
+  handler          = "client.lambda_handler"
   runtime          = var.python_runtime
   filename         = data.archive_file.client_lambda.output_path
   source_code_hash = data.archive_file.client_lambda.output_base64sha256
@@ -240,14 +240,14 @@ resource "aws_lambda_function" "client_lambda" {
 
 data "archive_file" "processor_lambda" {
   type        = "zip"
-  source_file = "../processor_lambda.py"
+  source_file = "../lambdas/processor.py"
   output_path = "processor_lambda.zip"
 }
 
 resource "aws_lambda_function" "processor_lambda" {
   function_name    = "${var.env}-nutrition-tracker-processor"
   role             = aws_iam_role.processor_lambda_role.arn
-  handler          = "processor_lambda.lambda_handler"
+  handler          = "processor.lambda_handler"
   runtime          = var.python_runtime
   filename         = data.archive_file.processor_lambda.output_path
   source_code_hash = data.archive_file.processor_lambda.output_base64sha256
@@ -276,14 +276,14 @@ resource "aws_lambda_event_source_mapping" "processor_trigger" {
 
 data "archive_file" "reporter_lambda" {
   type        = "zip"
-  source_file = "../reporter_lambda.py"
+  source_file = "../lambdas/reporter.py"
   output_path = "reporter_lambda.zip"
 }
 
 resource "aws_lambda_function" "reporter_lambda" {
   function_name    = "${var.env}-nutrition-tracker-reporter"
   role             = aws_iam_role.reporter_lambda_role.arn
-  handler          = "reporter_lambda.lambda_handler"
+  handler          = "reporter.lambda_handler"
   runtime          = var.python_runtime
   filename         = data.archive_file.reporter_lambda.output_path
   source_code_hash = data.archive_file.reporter_lambda.output_base64sha256
