@@ -33,3 +33,9 @@ variable "timezone" {
   type        = string
   default     = "Asia/Jerusalem"
 }
+
+variable "log_retention_in_days" {
+  description = "The number of days to retain CloudWatch logs for Lambda functions."
+  type        = number
+  default     = 14
+}
