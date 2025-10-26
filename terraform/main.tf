@@ -2,6 +2,12 @@
 data "aws_caller_identity" "current" {}
 
 locals {
+  common_tags = {
+    Environment = var.env
+    Project     = "NutritionTracker"
+    ManagedBy   = "Terraform"
+  }
+
   client_lambda_ssm_params = [
     "/${var.env}/nutrition-tracker/telegram-bot-token",
     "/${var.env}/nutrition-tracker/telegram-secret-token"
@@ -25,13 +31,18 @@ locals {
 
 # SQS Dead-Letter Queue
 resource "aws_sqs_queue" "nutrition_tracker_dlq" {
-  name = "${var.env}-nutrition-tracker-dlq"
+  name                    = "${var.env}-nutrition-tracker-dlq"
+  sqs_managed_sse_enabled = true
+  tags                    = local.common_tags
 }
 
 # SQS Main Queue
 resource "aws_sqs_queue" "nutrition_tracker_queue" {
   name                       = "${var.env}-nutrition-tracker-queue"
   visibility_timeout_seconds = 330
+  sqs_managed_sse_enabled    = true
+  tags                       = local.common_tags
+
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.nutrition_tracker_dlq.arn
     maxReceiveCount     = 5
@@ -53,6 +64,8 @@ resource "aws_dynamodb_table" "nutrition_tracker_messages" {
     attribute_name = "ttl"
     enabled        = true
   }
+
+  tags = local.common_tags
 }
 
 # IAM Roles and Policies
@@ -60,6 +73,8 @@ resource "aws_dynamodb_table" "nutrition_tracker_messages" {
 
 resource "aws_iam_role" "client_lambda_role" {
   name = "${var.env}-nutrition-tracker-client-lambda-role"
+  tags = local.common_tags
+
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -106,6 +121,8 @@ resource "aws_iam_role_policy_attachment" "client_lambda_basic_execution" {
 
 resource "aws_iam_role" "processor_lambda_role" {
   name = "${var.env}-nutrition-tracker-processor-lambda-role"
+  tags = local.common_tags
+
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -168,6 +185,8 @@ resource "aws_iam_role_policy_attachment" "processor_lambda_basic_execution" {
 
 resource "aws_iam_role" "reporter_lambda_role" {
   name = "${var.env}-nutrition-tracker-reporter-lambda-role"
+  tags = local.common_tags
+
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -210,6 +229,22 @@ resource "aws_lambda_layer_version" "dependencies_layer" {
   compatible_runtimes = [var.python_runtime]
 }
 
+# CloudWatch Log Groups for Lambda Functions
+resource "aws_cloudwatch_log_group" "client_lambda_lg" {
+  name              = "/aws/lambda/${var.env}-nutrition-tracker-client"
+  retention_in_days = var.log_retention_in_days
+}
+
+resource "aws_cloudwatch_log_group" "processor_lambda_lg" {
+  name              = "/aws/lambda/${var.env}-nutrition-tracker-processor"
+  retention_in_days = var.log_retention_in_days
+}
+
+resource "aws_cloudwatch_log_group" "reporter_lambda_lg" {
+  name              = "/aws/lambda/${var.env}-nutrition-tracker-reporter"
+  retention_in_days = var.log_retention_in_days
+}
+
 # Lambda Functions
 
 data "archive_file" "client_lambda" {
@@ -226,6 +261,13 @@ resource "aws_lambda_function" "client_lambda" {
   filename         = data.archive_file.client_lambda.output_path
   source_code_hash = data.archive_file.client_lambda.output_base64sha256
   timeout          = 10
+  tags             = local.common_tags
+
+  depends_on = [
+    aws_cloudwatch_log_group.client_lambda_lg,
+    aws_iam_role_policy.client_lambda_policy,
+    aws_iam_role_policy_attachment.client_lambda_basic_execution
+  ]
 
   layers = [aws_lambda_layer_version.dependencies_layer.arn]
 
@@ -253,6 +295,13 @@ resource "aws_lambda_function" "processor_lambda" {
   source_code_hash = data.archive_file.processor_lambda.output_base64sha256
   timeout          = 300
   memory_size      = 512
+  tags             = local.common_tags
+
+  depends_on = [
+    aws_cloudwatch_log_group.processor_lambda_lg,
+    aws_iam_role_policy.processor_lambda_policy,
+    aws_iam_role_policy_attachment.processor_lambda_basic_execution
+  ]
 
   layers = [aws_lambda_layer_version.dependencies_layer.arn]
 
@@ -288,6 +337,13 @@ resource "aws_lambda_function" "reporter_lambda" {
   filename         = data.archive_file.reporter_lambda.output_path
   source_code_hash = data.archive_file.reporter_lambda.output_base64sha256
   timeout          = 30
+  tags             = local.common_tags
+
+  depends_on = [
+    aws_cloudwatch_log_group.reporter_lambda_lg,
+    aws_iam_role_policy.reporter_lambda_policy,
+    aws_iam_role_policy_attachment.reporter_lambda_basic_execution
+  ]
 
   layers = [aws_lambda_layer_version.dependencies_layer.arn]
 
@@ -306,6 +362,7 @@ resource "aws_lambda_function" "reporter_lambda" {
 resource "aws_cloudwatch_event_rule" "reporter_rule" {
   name                = "${var.env}-daily-nutrition-report-trigger"
   schedule_expression = var.reporter_schedule_cron
+  tags                = local.common_tags
 }
 
 resource "aws_cloudwatch_event_target" "reporter_target" {
@@ -326,6 +383,7 @@ resource "aws_lambda_permission" "allow_cloudwatch_to_call_reporter" {
 resource "aws_apigatewayv2_api" "http_api" {
   name          = "${var.env}-nutrition-tracker-api"
   protocol_type = "HTTP"
+  tags          = local.common_tags
 }
 
 resource "aws_apigatewayv2_integration" "lambda_integration" {
@@ -344,6 +402,7 @@ resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.http_api.id
   name        = "$default"
   auto_deploy = true
+  tags        = local.common_tags
 }
 
 resource "aws_lambda_permission" "api_gateway_permission" {
