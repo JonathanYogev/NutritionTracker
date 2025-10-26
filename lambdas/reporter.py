@@ -4,17 +4,18 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import boto3
+from typing import Dict, Any, List, Tuple
 from common.utils import get_secret, send_telegram_message, get_sheets_service
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 
-def calculate_daily_totals(sheet_values, today_str):
+def calculate_daily_totals(sheet_values: List[List[str]], today_str: str) -> Tuple[float, float, float, float]:
     """
     Calculates total nutrition values for a given day from sheet data.
     """
-    total_calories, total_protein, total_carbs, total_fat = 0, 0, 0, 0
+    total_calories, total_protein, total_carbs, total_fat = 0.0, 0.0, 0.0, 0.0
 
     # Skip header row if it exists
     for row in sheet_values[1:]:
@@ -22,7 +23,7 @@ def calculate_daily_totals(sheet_values, today_str):
             continue
 
         try:
-            row_date_str = row[0].split(' ')[0]
+            row_date_str: str = row[0].split(' ')[0]
             if row_date_str == today_str:
                 total_calories += float(row[2])
                 total_protein += float(row[3])
@@ -36,7 +37,7 @@ def calculate_daily_totals(sheet_values, today_str):
     return total_calories, total_protein, total_carbs, total_fat
 
 
-def lambda_handler(event, context):
+def lambda_handler(event: Dict[str, Any], context: object) -> Dict[str, Any]:
     """
     Lambda function to generate a daily nutrition report.
     - Reads all meal entries from a Google Sheet.
@@ -45,25 +46,26 @@ def lambda_handler(event, context):
     - Sends the summary to a specified Telegram chat.
     """
     # Fetch secrets and config
-    telegram_bot_token = get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH')
-    google_sheets_credentials = get_secret(
+    telegram_bot_token: str = get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH')
+    google_sheets_credentials: str = get_secret(
         'GOOGLE_SHEETS_CREDENTIALS_SSM_PATH')
-    spreadsheet_id = get_secret('SPREADSHEET_ID_SSM_PATH')
-    telegram_chat_id = get_secret('TELEGRAM_CHAT_ID_SSM_PATH')
+    spreadsheet_id: str = get_secret('SPREADSHEET_ID_SSM_PATH')
+    telegram_chat_id: str = get_secret('TELEGRAM_CHAT_ID_SSM_PATH')
 
     # Externalize sheet names for better maintainability
-    meals_sheet_name = os.environ.get('MEALS_SHEET_NAME', 'Meals')
-    reports_sheet_name = os.environ.get('REPORTS_SHEET_NAME', 'Daily_Reports')
+    meals_sheet_name: str = os.environ.get('MEALS_SHEET_NAME', 'Meals')
+    reports_sheet_name: str = os.environ.get(
+        'REPORTS_SHEET_NAME', 'Daily_Reports')
 
     try:
         logger.info("Starting daily nutrition report generation.")
-        service = get_sheets_service(google_sheets_credentials)
-        sheet = service.spreadsheets()
+        service: Any = get_sheets_service(google_sheets_credentials)
+        sheet: Any = service.spreadsheets()
 
-        read_range = f"{meals_sheet_name}!A:F"
-        result = sheet.values().get(spreadsheetId=spreadsheet_id,
-                                    range=read_range).execute()
-        values = result.get('values', [])
+        read_range: str = f"{meals_sheet_name}!A:F"
+        result: Dict[str, Any] = sheet.values().get(spreadsheetId=spreadsheet_id,
+                                                    range=read_range).execute()
+        values: List[List[str]] = result.get('values', [])
 
         if not values or len(values) <= 1:
             logger.info(
@@ -73,7 +75,7 @@ def lambda_handler(event, context):
                 telegram_chat_id, "No meals were logged today. No report generated.", telegram_bot_token)
             return {'statusCode': 200, 'body': 'Sheet was empty or had only a header.'}
 
-        today_str = datetime.now(
+        today_str: str = datetime.now(
             ZoneInfo(os.environ['TIMEZONE'])).strftime("%Y-%m-%d")
         logger.info(f"Calculating totals for date: {today_str}")
 
@@ -83,14 +85,14 @@ def lambda_handler(event, context):
         logger.info(
             f"Calculated totals: Cals={total_calories}, Prot={total_protein}, Carbs={total_carbs}, Fat={total_fat}")
 
-        summary_data = [
+        summary_data: List[Any] = [
             today_str,
             round(total_calories, 2),
             round(total_protein, 2),
             round(total_carbs, 2),
             round(total_fat, 2)
         ]
-        body = {'values': [summary_data]}
+        body: Dict[str, Any] = {'values': [summary_data]}
         sheet.values().append(
             spreadsheetId=spreadsheet_id,
             range=f"{reports_sheet_name}!A:E",
@@ -100,7 +102,7 @@ def lambda_handler(event, context):
         ).execute()
         logger.info(f"Appended daily summary to '{reports_sheet_name}' sheet.")
 
-        report_message = f"📊 Daily Nutrition Summary for {today_str}:\n\n"
+        report_message: str = f"📊 Daily Nutrition Summary for {today_str}:\n\n"
         report_message += f"🔥 Total Calories: {round(total_calories, 2)}\n"
         report_message += f"💪 Total Protein: {round(total_protein, 2)}g\n"
         report_message += f"🍞 Total Carbs: {round(total_carbs, 2)}g\n"
@@ -116,7 +118,7 @@ def lambda_handler(event, context):
         logger.error(f"An error occurred: {e}", exc_info=True)
         # Optionally, send an error message to Telegram
         try:
-            error_message = f"Failed to generate daily nutrition report. Error: {e}"
+            error_message: str = f"Failed to generate daily nutrition report. Error: {e}"
             send_telegram_message(
                 telegram_chat_id, error_message, telegram_bot_token)
         except Exception as notify_e:
