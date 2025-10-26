@@ -13,6 +13,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import time
 from botocore.exceptions import ClientError
+from typing import Dict, Any, List, Optional, Tuple
 from common.utils import get_secret, send_telegram_message, get_sheets_service
 
 logger = logging.getLogger()
@@ -21,27 +22,27 @@ logger.setLevel(logging.INFO)
 dynamodb = boto3.resource('dynamodb')
 
 
-GEMINI_VISION_MODEL_NAME = os.environ.get(
+GEMINI_VISION_MODEL_NAME: str = os.environ.get(
     'GEMINI_VISION_MODEL_NAME', 'gemini-2.5-pro')
-GEMINI_PICKER_MODEL_NAME = os.environ.get(
+GEMINI_PICKER_MODEL_NAME: str = os.environ.get(
     'GEMINI_PICKER_MODEL_NAME', 'gemini-2.5-flash')
 
 
-def get_telegram_image(file_id, bot_token):
+def get_telegram_image(file_id: str, bot_token: str) -> bytes:
     """Downloads an image from Telegram."""
-    url = f"https://api.telegram.org/bot{bot_token}/getFile?file_id={file_id}"
+    url: str = f"https://api.telegram.org/bot{bot_token}/getFile?file_id={file_id}"
     response = requests.get(url)
     response.raise_for_status()
-    file_path = response.json()['result']['file_path']
-    image_url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
+    file_path: str = response.json()['result']['file_path']
+    image_url: str = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
     image_response = requests.get(image_url)
     image_response.raise_for_status()
     return image_response.content
 
 
-def analyze_image_with_gemini(image_bytes):
+def analyze_image_with_gemini(image_bytes: bytes) -> str:
     """Analyzes an image with Google Gemini Vision API using the Python SDK."""
-    img = Image.open(io.BytesIO(image_bytes))
+    img: Image.Image = Image.open(io.BytesIO(image_bytes))
     model = genai.GenerativeModel(GEMINI_VISION_MODEL_NAME)
     response = model.generate_content([
         "Identify the food items in the image. For each food item, provide an estimated weight in grams in parentheses. It is very important that the weight in parentheses comes directly after the food item it refers to. For example: '1 cooked chicken breast (170g)'; 'Broccoli florets (160g)'. Separate items with a semicolon (;). Do not include any introductory text in your response, only the list of items. If no food is identifiable in the image, respond with the single word: NO_FOOD.",
@@ -52,23 +53,24 @@ def analyze_image_with_gemini(image_bytes):
     return response.text
 
 
-def get_nutrition_data(food_item, fdc_api_key):
+def get_nutrition_data(food_item: str, fdc_api_key: str) -> Optional[Dict[str, Any]]:
     """
     Gets nutrition data from FoodData Central by making separate calls for each data type
     and letting Gemini pick the best match from the combined results.
     """
-    data_types = ["SR Legacy", "Foundation", "Survey (FNDDS)", "Branded"]
-    all_foods = []
-    seen_fdc_ids = set()
+    data_types: List[str] = ["SR Legacy",
+                             "Foundation", "Survey (FNDDS)", "Branded"]
+    all_foods: List[Dict[str, Any]] = []
+    seen_fdc_ids: set[int] = set()
 
     for data_type in data_types:
         try:
-            encoded_data_type = requests.utils.quote(data_type)
-            search_url = f"https://api.nal.usda.gov/fdc/v1/foods/search?query={food_item}&dataType={encoded_data_type}&api_key={fdc_api_key}&pageSize=10"
+            encoded_data_type: str = requests.utils.quote(data_type)
+            search_url: str = f"https://api.nal.usda.gov/fdc/v1/foods/search?query={food_item}&dataType={encoded_data_type}&api_key={fdc_api_key}&pageSize=10"
 
             response = requests.get(search_url)
             response.raise_for_status()
-            search_data_subset = response.json()
+            search_data_subset: Dict[str, Any] = response.json()
 
             if search_data_subset.get('foods'):
                 for food in search_data_subset['foods']:
@@ -83,23 +85,24 @@ def get_nutrition_data(food_item, fdc_api_key):
     if not all_foods:
         return None
 
-    search_data = {'foods': all_foods}
+    search_data: Dict[str, Any] = {'foods': all_foods}
 
-    options = []
+    options: List[str] = []
     for i, food in enumerate(search_data['foods']):
         options.append(f"{i+1}. {food.get('description')}")
 
-    options_string = "\n".join(options)
+    options_string: str = "\n".join(options)
 
-    prompt = f"""You are a nutrition expert. The user ate '{food_item}'. I found the following items in the USDA database. Which one is the best and most accurate match? Answer based on logic, not just words. Please respond with only the number of the best option.\n\n{options_string}"""
+    prompt: str = f"""You are a nutrition expert. The user ate '{food_item}'. I found the following items in the USDA database. Which one is the best and most accurate match? Answer based on logic, not just words. Please respond with only the number of the best option.\n\n{options_string}"""
 
     picker_model = genai.GenerativeModel(GEMINI_PICKER_MODEL_NAME)
     picker_response = picker_model.generate_content(prompt)
 
-    best_option_number = 0
+    best_option_number: int = 0
     try:
         best_option_number = int(picker_response.text.strip())
-        selected_food = search_data['foods'][best_option_number - 1]
+        selected_food: Dict[str,
+                            Any] = search_data['foods'][best_option_number - 1]
     except (ValueError, IndexError):
         # Fallback to the first result if Gemini's response is invalid
         logger.warning(
@@ -113,12 +116,12 @@ def get_nutrition_data(food_item, fdc_api_key):
     return {'foods': [selected_food]}
 
 
-def write_to_google_sheets(data, google_sheets_credentials, spreadsheet_id):
+def write_to_google_sheets(data: List[Any], google_sheets_credentials: str, spreadsheet_id: str) -> Dict[str, Any]:
     """Writes data to Google Sheets."""
     service = get_sheets_service(google_sheets_credentials)
     sheet = service.spreadsheets()
-    body = {'values': [data]}
-    result = sheet.values().append(
+    body: Dict[str, Any] = {'values': [data]}
+    result: Dict[str, Any] = sheet.values().append(
         spreadsheetId=spreadsheet_id,
         range='Meals!A:F',
         valueInputOption='USER_ENTERED',
@@ -128,7 +131,7 @@ def write_to_google_sheets(data, google_sheets_credentials, spreadsheet_id):
     return result
 
 
-def _check_and_update_idempotency(idempotency_key, table):
+def _check_and_update_idempotency(idempotency_key: str, table: any) -> bool:
     """
     Checks for and sets the idempotency key in DynamoDB.
 
@@ -136,8 +139,9 @@ def _check_and_update_idempotency(idempotency_key, table):
         bool: True if processing should continue, False if it should be skipped.
     """
     try:
-        response = table.get_item(Key={'idempotency_key': idempotency_key})
-        item = response.get('Item')
+        response: Dict[str, Any] = table.get_item(
+            Key={'idempotency_key': idempotency_key})
+        item: Optional[Dict[str, Any]] = response.get('Item')
 
         if item and item.get('status') == 'COMPLETED':
             logger.warning(
@@ -149,7 +153,7 @@ def _check_and_update_idempotency(idempotency_key, table):
                 f"Request {idempotency_key} is already processing. Retrying.")
             return True
 
-        ttl_timestamp = int(time.time()) + 86400  # 24-hour TTL
+        ttl_timestamp: int = int(time.time()) + 86400  # 24-hour TTL
         table.put_item(
             Item={'idempotency_key': idempotency_key,
                   'status': 'PROCESSING', 'ttl': ttl_timestamp},
@@ -168,10 +172,10 @@ def _check_and_update_idempotency(idempotency_key, table):
         raise
 
 
-def _get_food_items_from_image(image_bytes, chat_id, telegram_bot_token):
+def _get_food_items_from_image(image_bytes: bytes, chat_id: int, telegram_bot_token: str) -> Optional[List[str]]:
     """Analyzes image with Gemini and returns a list of food items."""
     try:
-        food_items_text = analyze_image_with_gemini(image_bytes)
+        food_items_text: str = analyze_image_with_gemini(image_bytes)
         logger.info(f"Gemini response: {food_items_text}")
 
         if food_items_text.strip() == 'NO_FOOD':
@@ -190,22 +194,23 @@ def _get_food_items_from_image(image_bytes, chat_id, telegram_bot_token):
         return None
 
 
-def _calculate_meal_nutrition(food_items, fdc_api_key):
+def _calculate_meal_nutrition(food_items: List[str], fdc_api_key: str) -> Dict[str, float]:
     """Calculates total nutrition for a list of food items."""
-    totals = {'calories': 0, 'protein': 0, 'carbs': 0, 'fat': 0}
+    totals: Dict[str, float] = {'calories': 0.0,
+                                'protein': 0.0, 'carbs': 0.0, 'fat': 0.0}
 
     for item in food_items:
         if not item:
             continue
 
-        weight = 0
-        food_name = item
+        weight: int = 0
+        food_name: str = item
         weight_match = re.search(r'\((\d+)g\)', item)
         if weight_match:
             weight = int(weight_match.group(1))
             food_name = item[:weight_match.start()].strip()
 
-        food_name_parts = food_name.split()
+        food_name_parts: List[str] = food_name.split()
         if food_name_parts and food_name_parts[0].isdigit():
             food_name = ' '.join(food_name_parts[1:])
 
@@ -217,15 +222,16 @@ def _calculate_meal_nutrition(food_items, fdc_api_key):
                 f"Could not determine weight for item: {item}. Skipping.")
             continue
 
-        nutrition_data = get_nutrition_data(food_name, fdc_api_key)
+        nutrition_data: Optional[Dict[str, Any]
+                                 ] = get_nutrition_data(food_name, fdc_api_key)
         if nutrition_data and nutrition_data.get('foods'):
-            found_food = nutrition_data['foods'][0]
+            found_food: Dict[str, Any] = nutrition_data['foods'][0]
             logger.info(f"FDC found food: {found_food.get('description')}")
 
             for nutrient in found_food.get('foodNutrients', []):
-                value_per_100g = nutrient.get('value', 0)
-                value_per_gram = value_per_100g / 100
-                nutrient_name = nutrient.get('nutrientName')
+                value_per_100g: float = nutrient.get('value', 0)
+                value_per_gram: float = value_per_100g / 100
+                nutrient_name: str = nutrient.get('nutrientName')
 
                 if nutrient_name == 'Energy' and nutrient.get('unitName', '').upper() == 'KCAL':
                     totals['calories'] += value_per_gram * weight
@@ -239,10 +245,10 @@ def _calculate_meal_nutrition(food_items, fdc_api_key):
     return totals
 
 
-def _format_result_message(food_items, nutrition_totals):
+def _format_result_message(food_items: List[str], nutrition_totals: Dict[str, float]) -> str:
     """Formats the final nutrition summary message for Telegram."""
-    items_text = "\n".join([f"- {item}" for item in food_items if item])
-    result_message = f"🍽️ Nutrition for your meal:\n{items_text}\n\n"
+    items_text: str = "\n".join([f"- {item}" for item in food_items if item])
+    result_message: str = f"🍽️ Nutrition for your meal:\n{items_text}\n\n"
     result_message += f"🔥 Calories: {round(nutrition_totals['calories'], 2)}\n"
     result_message += f"💪 Protein: {round(nutrition_totals['protein'], 2)}g\n"
     result_message += f"🍞 Carbs: {round(nutrition_totals['carbs'], 2)}g\n"
@@ -250,23 +256,24 @@ def _format_result_message(food_items, nutrition_totals):
     return result_message
 
 
-def process_meal_from_message(message_body, configs):
+def process_meal_from_message(message_body: Dict[str, Any], configs: Dict[str, Any]) -> None:
     """
     Processes a single meal from an SQS message body.
     Downloads image, analyzes nutrition, logs to sheets, and notifies user.
     """
-    idempotency_key = message_body['idempotency_key']
+    idempotency_key: str = message_body['idempotency_key']
     if not _check_and_update_idempotency(idempotency_key, configs['table']):
         return
 
-    chat_id = message_body['chat_id']
-    file_id = message_body['file_id']
+    chat_id: int = message_body['chat_id']
+    file_id: str = message_body['file_id']
     logger.info(
         f"Processing message for chat_id: {chat_id}, file_id: {file_id}")
 
-    image_bytes = get_telegram_image(file_id, configs['telegram_bot_token'])
+    image_bytes: bytes = get_telegram_image(
+        file_id, configs['telegram_bot_token'])
 
-    food_items = _get_food_items_from_image(
+    food_items: Optional[List[str]] = _get_food_items_from_image(
         image_bytes, chat_id, configs['telegram_bot_token'])
     if food_items is None:
         # Mark as complete to prevent retries for non-food images
@@ -280,12 +287,12 @@ def process_meal_from_message(message_body, configs):
             f"NO FOOD detected - Request {idempotency_key} marked as COMPLETED.")
         return
 
-    nutrition_totals = _calculate_meal_nutrition(
+    nutrition_totals: Dict[str, float] = _calculate_meal_nutrition(
         food_items, configs['fdc_api_key'])
 
-    now = datetime.now(ZoneInfo(os.environ['TIMEZONE'])
-                       ).strftime("%Y-%m-%d %H:%M:%S")
-    sheet_data = [
+    now: str = datetime.now(ZoneInfo(os.environ['TIMEZONE'])
+                            ).strftime("%Y-%m-%d %H:%M:%S")
+    sheet_data: List[Any] = [
         now,
         ', '.join(food_items),
         round(nutrition_totals['calories'], 2),
@@ -296,7 +303,7 @@ def process_meal_from_message(message_body, configs):
     write_to_google_sheets(
         sheet_data, configs['google_sheets_credentials'], configs['spreadsheet_id'])
 
-    result_message = _format_result_message(food_items, nutrition_totals)
+    result_message: str = _format_result_message(food_items, nutrition_totals)
     send_telegram_message(chat_id, result_message,
                           configs['telegram_bot_token'])
 
@@ -309,12 +316,12 @@ def process_meal_from_message(message_body, configs):
     logger.info(f"Request {idempotency_key} marked as COMPLETED.")
 
 
-def lambda_handler(event, context):
+def lambda_handler(event: Dict[str, Any], context: object) -> None:
     """Lambda function entry point for processing SQS messages."""
     # Setup once per invocation for performance
     try:
-        table_name = os.environ['DYNAMODB_TABLE_NAME']
-        configs = {
+        table_name: str = os.environ['DYNAMODB_TABLE_NAME']
+        configs: Dict[str, Any] = {
             'telegram_bot_token': get_secret('TELEGRAM_BOT_TOKEN_SSM_PATH'),
             'gemini_api_key': get_secret('GEMINI_API_KEY_SSM_PATH'),
             'fdc_api_key': get_secret('FDC_API_KEY_SSM_PATH'),
@@ -331,13 +338,13 @@ def lambda_handler(event, context):
 
     for record in event['Records']:
         try:
-            message_body = json.loads(record['body'])
+            message_body: Dict[str, Any] = json.loads(record['body'])
             process_meal_from_message(message_body, configs)
 
         except Exception as e:
             logger.error(f"Error processing SQS message: {e}", exc_info=True)
             try:
-                message_body = json.loads(record['body'])
+                message_body: Dict[str, Any] = json.loads(record['body'])
                 if 'chat_id' in message_body:
                     send_telegram_message(
                         message_body['chat_id'],
