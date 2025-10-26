@@ -5,24 +5,26 @@ import requests
 import json
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from typing import Dict, Any
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # Initialize Boto3 clients and a cache for secrets
 ssm = boto3.client('ssm')
-secrets_cache = {}
+secrets_cache: Dict[str, str] = {}
 
 
-def get_secret(parameter_name_env_var):
+def get_secret(parameter_name_env_var: str) -> str:
     """Fetches a secret from AWS SSM Parameter Store with caching."""
     if parameter_name_env_var in secrets_cache:
         return secrets_cache[parameter_name_env_var]
 
     try:
-        parameter_name = os.environ[parameter_name_env_var]
-        response = ssm.get_parameter(Name=parameter_name, WithDecryption=True)
-        secret_value = response['Parameter']['Value']
+        parameter_name: str = os.environ[parameter_name_env_var]
+        response: Dict[str, Any] = ssm.get_parameter(
+            Name=parameter_name, WithDecryption=True)
+        secret_value: str = response['Parameter']['Value']
         secrets_cache[parameter_name_env_var] = secret_value
         return secret_value
     except Exception as e:
@@ -31,10 +33,10 @@ def get_secret(parameter_name_env_var):
         raise e
 
 
-def send_telegram_message(chat_id, text, bot_token):
+def send_telegram_message(chat_id: int, text: str, bot_token: str) -> None:
     """Sends a message to a Telegram user."""
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {
+    url: str = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload: Dict[str, Any] = {
         'chat_id': chat_id,
         'text': text
     }
@@ -48,8 +50,8 @@ def send_telegram_message(chat_id, text, bot_token):
         raise e
 
 
-def get_sheets_service(google_sheets_credentials):
+def get_sheets_service(google_sheets_credentials: str) -> Any:
     """Creates and returns a Google Sheets API service object."""
-    creds_json = json.loads(google_sheets_credentials)
+    creds_json: Dict[str, Any] = json.loads(google_sheets_credentials)
     creds = service_account.Credentials.from_service_account_info(creds_json)
     return build('sheets', 'v4', credentials=creds)
